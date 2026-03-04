@@ -1,0 +1,262 @@
+---
+title: "Retrieve Artifact"
+api: "GET /artifacts/{artifact_type}/{id}"
+description: "Fetch artifact details by type and ID"
+---
+
+## Endpoints
+
+There are two ways to retrieve artifacts:
+
+### 1. Get by Type and ID
+
+```
+GET /artifacts/{artifact_type}/{id}
+```
+
+Fetch a specific artifact by its type and unique identifier.
+
+### 2. Get by Name
+
+```
+GET /artifact/byName/{name}
+```
+
+Find all artifacts matching an exact name.
+
+---
+
+## Get by Type and ID
+
+### Parameters
+
+<ParamField path="artifact_type" type="string" required>
+  Type of artifact to retrieve:
+  - `model` - Machine learning model
+  - `dataset` - Training or evaluation dataset
+  - `code` - Code repository or script
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Unique identifier of the artifact. Must be alphanumeric (may include hyphens).
+  
+  Examples: `12345`, `abc-123`, `model-001`
+</ParamField>
+
+### Response
+
+Returns the artifact with metadata and data fields.
+
+<ResponseField name="metadata" type="object" required>
+  Artifact metadata
+  
+  <ResponseField name="metadata.name" type="string">
+    Name of the artifact
+  </ResponseField>
+  
+  <ResponseField name="metadata.id" type="string">
+    Unique identifier
+  </ResponseField>
+  
+  <ResponseField name="metadata.type" type="string">
+    Artifact type: `model`, `dataset`, or `code`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  Artifact data and URLs
+  
+  <ResponseField name="data.url" type="string">
+    Source URL of the artifact
+  </ResponseField>
+  
+  <ResponseField name="data.download_url" type="string">
+    Pre-signed download URL (if available)
+    
+    For model artifacts, this is typically an S3 pre-signed URL valid for a limited time.
+    
+    For dataset/code artifacts, this may be null if no download was uploaded.
+  </ResponseField>
+</ResponseField>
+
+### Error Codes
+
+- `400` - Invalid artifact type or malformed ID
+- `404` - Artifact not found
+- `500` - Internal server error
+
+### Examples
+
+<CodeGroup>
+
+```bash Get Model Artifact
+curl https://api.example.com/artifacts/model/12345
+```
+
+```bash Get Dataset Artifact
+curl https://api.example.com/artifacts/dataset/67890
+```
+
+```bash Get Code Artifact
+curl https://api.example.com/artifacts/code/abc-123
+```
+
+</CodeGroup>
+
+### Response Example
+
+```json
+{
+  "metadata": {
+    "name": "BERT Base Uncased",
+    "id": "12345",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/bucket/artifacts/model/12345.zip?signature=..."
+  }
+}
+```
+
+---
+
+## Get by Name
+
+### Endpoint
+
+```
+GET /artifact/byName/{name}
+```
+
+### Parameters
+
+<ParamField path="name" type="string" required>
+  Exact name of the artifact(s) to find. The name is matched after trimming whitespace.
+  
+  Use path encoding for names with special characters or slashes:
+  - `google-bert/bert-base-uncased` → `google-bert%2Fbert-base-uncased`
+</ParamField>
+
+### Response
+
+Returns an **array** of matching artifacts (may be empty if no matches found).
+
+<ResponseField name="response" type="array">
+  Array of artifact metadata objects
+  
+  <ResponseField name="name" type="string">
+    Artifact name
+  </ResponseField>
+  
+  <ResponseField name="id" type="string">
+    Unique identifier
+  </ResponseField>
+  
+  <ResponseField name="type" type="string">
+    Artifact type: `model`, `dataset`, or `code`
+  </ResponseField>
+</ResponseField>
+
+### Behavior Notes
+
+- Always returns HTTP 200, even when no artifacts match
+- Returns empty array `[]` if no matches found
+- Does NOT return 404 for zero matches (spec-compliant behavior)
+- Results are sorted by ID for deterministic ordering
+- Matching is **exact** and **case-sensitive** (after trimming)
+
+### Examples
+
+<CodeGroup>
+
+```bash Get by Simple Name
+curl https://api.example.com/artifact/byName/my-model
+```
+
+```bash Get by HuggingFace ID
+curl https://api.example.com/artifact/byName/google-bert%2Fbert-base-uncased
+```
+
+```bash URL-encoded Name with Spaces
+curl https://api.example.com/artifact/byName/My%20Custom%20Model
+```
+
+</CodeGroup>
+
+### Response Examples
+
+**Multiple matches found:**
+
+```json
+[
+  {
+    "name": "google-bert/bert-base-uncased",
+    "id": "12345",
+    "type": "model"
+  },
+  {
+    "name": "google-bert/bert-base-uncased",
+    "id": "12346",
+    "type": "model"
+  }
+]
+```
+
+**No matches found:**
+
+```json
+[]
+```
+
+---
+
+## Additional Retrieval Endpoints
+
+### Search by Regular Expression
+
+```
+POST /artifact/byRegEx
+```
+
+Search artifact names and model cards using regex patterns.
+
+**Request:**
+```json
+{
+  "regex": "bert.*uncased"
+}
+```
+
+**Response:**
+Array of matching artifact metadata (same format as byName).
+
+### List All Artifacts
+
+```
+POST /artifacts
+```
+
+Enumerate artifacts with filtering and pagination.
+
+**Request:**
+```json
+[
+  {
+    "name": "*",
+    "types": ["model", "dataset"]
+  }
+]
+```
+
+**Response:**
+Paginated array of artifact metadata. Check `offset` response header for next page.
+
+---
+
+## See Also
+
+- [Create Artifact](/api/artifacts/create) - Upload new artifacts
+- [Update Artifact](/api/artifacts/update) - Modify artifact metadata
+- [Delete Artifact](/api/artifacts/delete) - Remove artifacts
+- [Rate Model](/api/rating/compute-metrics) - Get trust metrics for models

@@ -1,0 +1,382 @@
+---
+title: AWS Deployment
+description: Deploy the Trustworthy Model Registry to AWS using Lambda and API Gateway
+---
+
+## Architecture Overview
+
+The Trustworthy Model Registry is designed as a cloud-native application deployed entirely on AWS using free-tier-compatible components.
+
+<img src="/images/aws-architecture.svg" alt="AWS Architecture" />
+
+### AWS Components
+
+<CardGroup cols={2}>
+  <Card title="AWS Lambda" icon="function">
+    Stateless execution of the FastAPI backend using the Mangum adapter
+  </Card>
+  <Card title="API Gateway" icon="door-open">
+    Public REST interface with CORS configuration
+  </Card>
+  <Card title="Amazon S3" icon="database">
+    Artifact storage and registry persistence (registry.json)
+  </Card>
+  <Card title="CloudWatch" icon="chart-line">
+    Logs, metrics, and system health monitoring
+  </Card>
+</CardGroup>
+
+<Note>
+All components are selected to remain within AWS Free Tier limits:
+- **Lambda**: 1M free requests/month, 400,000 GB-seconds compute
+- **API Gateway**: 1M API calls/month for first 12 months
+- **S3**: 5GB storage, 20,000 GET requests, 2,000 PUT requests
+- **CloudWatch**: 5GB log data, 10 custom metrics
+</Note>
+
+## Mangum Adapter
+
+The application uses **Mangum** to adapt the FastAPI application for AWS Lambda execution:
+
+```python src/main.py
+from mangum import Mangum
+from fastapi import FastAPI
+
+app = FastAPI(title="SOTeam4P2 API")
+
+# ... middleware and routers ...
+
+# Create Lambda handler
+handler = Mangum(app)
+```
+
+Mangum automatically translates between:
+- AWS Lambda events → ASGI requests
+- ASGI responses → AWS Lambda responses
+
+This allows the same FastAPI application to run both:
+- Locally with Uvicorn
+- In production on AWS Lambda
+
+## Deployment Process
+
+### Prerequisites
+
+<Steps>
+  <Step title="AWS Account">
+    Create an AWS account with appropriate IAM permissions for Lambda, API Gateway, S3, and CloudWatch.
+  </Step>
+  <Step title="AWS CLI">
+    Install and configure the AWS CLI:
+    ```bash
+    aws configure
+    ```
+  </Step>
+  <Step title="Package Dependencies">
+    Create a deployment package with all dependencies:
+    ```bash
+    pip install -r requirements.txt -t package/
+    cp -r src package/
+    cd package && zip -r ../deployment.zip . && cd ..
+    ```
+  </Step>
+</Steps>
+
+### 1. Create S3 Bucket
+
+Create an S3 bucket for artifact storage:
+
+```bash
+aws s3 mb s3://your-bucket-name --region us-east-2
+```
+
+<Warning>
+Bucket names must be globally unique across all AWS accounts. Choose a unique name for your deployment.
+</Warning>
+
+### 2. Create Lambda Function
+
+Create the Lambda function:
+
+```bash
+aws lambda create-function \
+  --function-name trustworthy-model-registry \
+  --runtime python3.12 \
+  --role arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role \
+  --handler src.main.handler \
+  --zip-file fileb://deployment.zip \
+  --timeout 900 \
+  --memory-size 512 \
+  --environment Variables="{
+    S3_BUCKET=your-bucket-name,
+    AWS_REGION=us-east-2,
+    AUTH_TOKEN=your-secret-token
+  }"
+```
+
+<Info>
+The handler path is `src.main.handler`, which refers to the `handler` variable in `src/main.py`.
+</Info>
+
+### 3. Create IAM Role
+
+The Lambda function requires an execution role with the following permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-bucket-name",
+        "arn:aws:s3:::your-bucket-name/*"
+      ]
+    }
+  ]
+}
+```
+
+### 4. Configure API Gateway
+
+Create a REST API in API Gateway:
+
+```bash
+aws apigatewayv2 create-api \
+  --name trustworthy-model-registry-api \
+  --protocol-type HTTP \
+  --target arn:aws:lambda:us-east-2:ACCOUNT_ID:function:trustworthy-model-registry
+```
+
+#### CORS Configuration
+
+The application handles CORS at the FastAPI level:
+
+```python src/main.py
+from starlette.middleware.cors import CORSMiddleware
+
+FRONTEND_ORIGIN = "http://sot4-model-registry-dev.s3-website.us-east-2.amazonaws.com"
+ALLOWED_ORIGINS = [FRONTEND_ORIGIN]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+<Tip>
+Update `ALLOWED_ORIGINS` in `src/main.py` to include your frontend domain before deployment.
+</Tip>
+
+### 5. Deploy to Lambda
+
+Update the function code:
+
+```bash
+aws lambda update-function-code \
+  --function-name trustworthy-model-registry \
+  --zip-file fileb://deployment.zip
+```
+
+### 6. Test the Deployment
+
+Verify the health endpoint:
+
+```bash
+curl https://YOUR_API_GATEWAY_URL/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "uptime_s": 45,
+  "models": 0
+}
+```
+
+## Environment Configuration for AWS
+
+Lambda environment variables are configured during function creation or update:
+
+### Required Variables
+
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `S3_BUCKET` | S3 bucket name for artifact storage | `sot4-model-registry-artifacts` |
+| `AWS_REGION` | AWS region (auto-detected in Lambda) | `us-east-2` |
+| `AUTH_TOKEN` | Default authentication token | `your-secret-token` |
+
+### Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `HUGGINGFACE_HUB_TOKEN` | HuggingFace API token | None |
+| `GITHUB_TOKEN` | GitHub API token | None |
+| `LOG_LEVEL` | Logging verbosity (0=silent, 1=INFO, 2=DEBUG) | `0` |
+
+<Note>
+`LOG_FILE` is not used in Lambda deployments. All logs automatically go to CloudWatch.
+</Note>
+
+## CloudWatch Logging
+
+The application uses custom ASGI middleware for request/response logging:
+
+```python src/api/middleware/log_requests.py
+class DeepASGILogger:
+    async def __call__(self, scope, receive, send):
+        # Logs all requests to CloudWatch
+        ...
+```
+
+### Viewing Logs
+
+View logs in CloudWatch:
+
+```bash
+aws logs tail /aws/lambda/trustworthy-model-registry --follow
+```
+
+Or use the AWS Console:
+1. Navigate to **CloudWatch** > **Log groups**
+2. Select `/aws/lambda/trustworthy-model-registry`
+3. View log streams
+
+## Continuous Deployment (CI/CD)
+
+The project includes GitHub Actions for automated deployment:
+
+### CI Pipeline
+
+Triggered on every pull request:
+- Runs unit, feature, and end-to-end tests
+- Enforces minimum coverage thresholds
+- Performs linting and static checks
+
+### CD Pipeline
+
+Triggered on merge to main branch:
+- Automatically deploys the service to AWS
+- Verifies successful startup and health endpoint
+- Uses GitHub Secrets for AWS credentials
+
+<Info>
+See `.github/workflows/` in the repository for CI/CD configuration details.
+</Info>
+
+## Monitoring and Observability
+
+### Health Endpoint
+
+The `/api/health` endpoint provides system status:
+
+```json
+{
+  "status": "ok",
+  "uptime_s": 12345,
+  "models": 42
+}
+```
+
+### CloudWatch Metrics
+
+Monitor Lambda execution:
+- **Invocations**: Total number of requests
+- **Duration**: Execution time per request
+- **Errors**: Failed invocations
+- **Throttles**: Rate-limited requests
+
+### Request Logging
+
+All requests are logged with:
+- Request method and path
+- Response status code
+- Execution time
+- Error details (if applicable)
+
+## Free Tier Considerations
+
+<Warning>
+Monitor your AWS usage to stay within free tier limits:
+- Lambda: Limit concurrent executions to avoid overages
+- S3: Implement lifecycle policies to archive old artifacts
+- API Gateway: Consider caching responses for frequently accessed endpoints
+</Warning>
+
+### Cost Optimization Tips
+
+<Steps>
+  <Step title="Reduce Lambda Memory">
+    Start with 512MB and adjust based on CloudWatch metrics
+  </Step>
+  <Step title="Enable S3 Intelligent Tiering">
+    Automatically move infrequently accessed artifacts to cheaper storage
+  </Step>
+  <Step title="Set CloudWatch Log Retention">
+    Limit log retention to 7-14 days for development environments
+  </Step>
+  <Step title="Use API Gateway Caching">
+    Cache GET responses for model listings and health checks
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Lambda Timeout Errors">
+    Increase the timeout setting:
+    ```bash
+    aws lambda update-function-configuration \
+      --function-name trustworthy-model-registry \
+      --timeout 900
+    ```
+  </Accordion>
+
+  <Accordion title="S3 Access Denied">
+    - Verify the Lambda execution role has S3 permissions
+    - Check the S3 bucket policy allows Lambda access
+    - Ensure `S3_BUCKET` environment variable is set correctly
+  </Accordion>
+
+  <Accordion title="CORS Errors">
+    - Update `ALLOWED_ORIGINS` in `src/main.py`
+    - Clear API Gateway CORS settings (application handles CORS)
+    - Check browser console for specific CORS error details
+  </Accordion>
+
+  <Accordion title="Cold Start Performance">
+    - Consider Lambda provisioned concurrency for production
+    - Optimize package size by removing unused dependencies
+    - Use Lambda layers for common dependencies
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Explore all environment variable options
+  </Card>
+  <Card title="API Overview" icon="book" href="/api/overview">
+    Learn about available API endpoints
+  </Card>
+</CardGroup>

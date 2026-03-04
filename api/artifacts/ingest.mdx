@@ -1,0 +1,199 @@
+---
+title: "Ingest Artifact"
+description: "Ingest HuggingFace models with automatic metadata extraction and trustworthiness metrics"
+---
+
+## About This Endpoint
+
+<Note>
+  Based on the current codebase implementation, there is **no separate `/artifact/ingest` endpoint**. 
+  
+  The ingestion functionality is integrated into the main artifact creation endpoint:
+  
+  **`POST /artifact/model`**
+  
+  When you create a model artifact using `POST /artifact/model`, the system automatically triggers the full ingestion pipeline described below.
+</Note>
+
+## How Model Ingestion Works
+
+When you create a model artifact via `POST /artifact/model`, the system automatically performs the following ingestion steps:
+
+### 1. HuggingFace Model Normalization
+
+The provided URL or model ID is normalized to a canonical HuggingFace identifier:
+- `https://huggingface.co/google-bert/bert-base-uncased` → `google-bert/bert-base-uncased`
+- `google-bert/bert-base-uncased` → `google-bert/bert-base-uncased`
+
+### 2. License Extraction
+
+The system fetches license information from the HuggingFace API:
+```
+GET https://huggingface.co/api/models/{model_id}
+```
+
+Extracts the `license` field and normalizes it to lowercase SPDX format (e.g., `apache-2.0`, `mit`).
+
+### 3. Trustworthiness Metrics Computation
+
+The ingestion pipeline computes comprehensive trust metrics:
+
+<ResponseField name="net_score" type="float">
+  Overall trustworthiness score (0.0 - 1.0)
+</ResponseField>
+
+<ResponseField name="reviewedness" type="float">
+  Code review and peer validation score
+  
+  **Critical**: Models with reviewedness < 0.5 are **rejected** with HTTP 424
+</ResponseField>
+
+<ResponseField name="reproducibility" type="float">
+  Reproducibility and documentation quality score
+</ResponseField>
+
+<ResponseField name="ramp_up_time" type="float">
+  Ease of understanding and adoption
+</ResponseField>
+
+<ResponseField name="bus_factor" type="float">
+  Project sustainability and contributor diversity
+</ResponseField>
+
+<ResponseField name="performance_claims" type="float">
+  Validation of performance benchmarks
+</ResponseField>
+
+<ResponseField name="dataset_and_code_score" type="float">
+  Quality of training data and code
+</ResponseField>
+
+<ResponseField name="dataset_quality" type="float">
+  Training dataset quality assessment
+</ResponseField>
+
+<ResponseField name="code_quality" type="float">
+  Code quality and maintainability
+</ResponseField>
+
+<ResponseField name="tree_score" type="float">
+  Dependency tree health score
+</ResponseField>
+
+<ResponseField name="size_score" type="object">
+  Model size suitability for different hardware platforms
+  
+  <ResponseField name="raspberry_pi" type="float">Score for Raspberry Pi deployment</ResponseField>
+  <ResponseField name="jetson_nano" type="float">Score for Jetson Nano deployment</ResponseField>
+  <ResponseField name="desktop_pc" type="float">Score for desktop PC deployment</ResponseField>
+  <ResponseField name="aws_server" type="float">Score for cloud server deployment</ResponseField>
+</ResponseField>
+
+### 4. Lineage Extraction
+
+The system extracts parent model dependencies from:
+- Model card metadata
+- HuggingFace API responses
+- Repository configuration files
+
+These dependencies are used to build the lineage graph accessible via `/artifact/model/{id}/lineage`.
+
+### 5. Reviewedness Gate
+
+<Warning>
+  **Automatic Rejection**: If the computed reviewedness score is less than 0.5, the ingestion fails with:
+  
+  - HTTP Status: `424 Failed Dependency`
+  - Error: `"Ingest rejected: reviewedness={score} < 0.50"`
+</Warning>
+
+This ensures only well-reviewed, trustworthy models are accepted into the registry.
+
+### 6. Artifact Storage
+
+After passing validation:
+
+1. A minimal artifact ZIP is created containing `source_url.txt`
+2. The ZIP is uploaded to S3 at `artifacts/model/{id}.zip`
+3. A pre-signed download URL is generated (valid for limited time)
+4. The download URL is stored in artifact metadata
+
+## Usage
+
+To trigger ingestion, use the standard artifact creation endpoint:
+
+```bash
+curl -X POST https://api.example.com/artifact/model \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "google-bert/bert-base-uncased",
+    "name": "BERT Base Uncased"
+  }'
+```
+
+## Response
+
+Successful ingestion returns HTTP 201 with full artifact details including computed metrics:
+
+```json
+{
+  "metadata": {
+    "name": "BERT Base Uncased",
+    "id": "12345",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/bucket/artifacts/model/12345.zip?signature=..."
+  }
+}
+```
+
+The artifact metadata stored in the registry includes all computed metrics, which can be retrieved via:
+- `GET /artifact/model/{id}/rate` - View all trust metrics
+- `GET /artifacts/model/{id}` - View artifact with embedded metadata
+
+## Error Codes
+
+- `400` - Invalid HuggingFace model ID or URL
+- `424` - Reviewedness score below threshold (< 0.5)
+- `502` - Unable to fetch HuggingFace model metadata
+- `500` - Internal error during metric computation or storage
+
+## Implementation Details
+
+The ingestion logic is implemented in `/home/daytona/workspace/source/src/api/routers/models.py:322`:
+
+```python
+def _ingest_hf_core(source_url: str) -> Dict[str, Any]:
+    # 1. Normalize HF ID
+    hf_id = _hf_id_from_url_or_id(source_url)
+    
+    # 2. Fetch license
+    hf_license = _fetch_hf_license(hf_id)
+    
+    # 3. Compute metrics
+    metrics = compute_metrics_for_model(base_resource)
+    
+    # 4. Reviewedness gate
+    if reviewedness < 0.5:
+        raise HTTPException(status_code=424, ...)
+    
+    # 5. Extract lineage
+    enriched = _build_hf_resource(hf_id)
+    parents = extract_parents_from_resource(enriched)
+    
+    # 6. Create registry entry
+    created = _registry.create(mc)
+    
+    # 7. Upload artifact ZIP
+    _storage.put_bytes(key, mem_zip.getvalue())
+    
+    return reg_item
+```
+
+## See Also
+
+- [Create Artifact](/api/artifacts/create) - Main artifact creation endpoint
+- [Retrieve Artifact](/api/artifacts/retrieve) - Get artifact with metrics
+- [Rate Model](/api/rating/compute-metrics) - View computed trust metrics

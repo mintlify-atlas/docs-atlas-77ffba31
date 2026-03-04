@@ -1,0 +1,259 @@
+---
+title: "Delete Artifact"
+api: "DELETE /artifacts/{artifact_type}/{id}"
+description: "Remove an artifact from the registry"
+---
+
+## Endpoint
+
+```
+DELETE /artifacts/{artifact_type}/{id}
+```
+
+## Parameters
+
+<ParamField path="artifact_type" type="string" required>
+  Type of artifact to delete:
+  - `model` - Machine learning model
+  - `dataset` - Training or evaluation dataset
+  - `code` - Code repository or script
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Unique identifier of the artifact to delete.
+</ParamField>
+
+## Authentication
+
+Authentication headers may be required depending on deployment configuration.
+
+## Response
+
+Returns a confirmation message on successful deletion.
+
+<ResponseField name="status" type="string">
+  Deletion status - always `"deleted"` on success
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  ID of the deleted artifact
+</ResponseField>
+
+## Error Codes
+
+- `404` - Artifact not found (already deleted or never existed)
+- `500` - Internal server error during deletion
+
+## Cleanup Behavior
+
+When an artifact is deleted:
+
+### 1. Registry Entry Removed
+
+The artifact is removed from the registry's in-memory model list (`_registry._models`).
+
+### 2. Metadata Deleted
+
+All associated metadata is removed, including:
+- Computed trust metrics (for models)
+- Lineage information
+- Tags and version information
+- Source URLs and download URLs
+
+### 3. Storage Artifacts
+
+<Warning>
+  **Important**: The current implementation does **NOT** automatically delete artifact files from S3 storage.
+  
+  Files remain at:
+  - `artifacts/model/{id}.zip`
+  - `artifacts/dataset/{id}.zip`
+  - `artifacts/code/{id}.zip`
+  
+  This may lead to orphaned storage objects. Consider implementing cleanup policies or manual deletion.
+</Warning>
+
+### 4. Lineage Impact
+
+<Note>
+  Deleting an artifact that is referenced as a parent in other artifacts' lineage graphs may result in:
+  
+  - Broken lineage references
+  - Incomplete dependency trees
+  - Potential errors when querying `/artifact/model/{id}/lineage` for dependent artifacts
+  
+  Consider checking lineage dependencies before deletion.
+</Note>
+
+## Idempotency
+
+The delete endpoint is **not idempotent**:
+- First delete: Returns `200` with success message
+- Subsequent deletes: Returns `404` (artifact not found)
+
+## Examples
+
+<CodeGroup>
+
+```bash Delete Model
+curl -X DELETE https://api.example.com/artifacts/model/12345
+```
+
+```bash Delete Dataset
+curl -X DELETE https://api.example.com/artifacts/dataset/67890
+```
+
+```bash Delete Code Artifact
+curl -X DELETE https://api.example.com/artifacts/code/abc-123
+```
+
+```bash Delete Non-existent Artifact (Error)
+curl -X DELETE https://api.example.com/artifacts/model/99999
+
+# Returns 404: Artifact does not exist.
+```
+
+</CodeGroup>
+
+## Response Examples
+
+**Success:**
+
+```json
+{
+  "status": "deleted",
+  "id": "12345"
+}
+```
+
+**Not Found:**
+
+```json
+{
+  "detail": "Artifact does not exist."
+}
+```
+
+## Use Cases
+
+### Remove Outdated Models
+
+Delete old model versions that are no longer needed:
+
+```bash
+curl -X DELETE https://api.example.com/artifacts/model/old-version-123
+```
+
+### Clean Up Failed Ingestions
+
+If a model ingestion partially succeeded but has invalid metrics, delete and retry:
+
+```bash
+# Delete the failed artifact
+curl -X DELETE https://api.example.com/artifacts/model/failed-456
+
+# Re-create with corrected data
+curl -X POST https://api.example.com/artifact/model \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://huggingface.co/correct-model"}'
+```
+
+### Remove Test Artifacts
+
+Clean up artifacts created during testing:
+
+```bash
+curl -X DELETE https://api.example.com/artifacts/dataset/test-dataset-1
+curl -X DELETE https://api.example.com/artifacts/code/test-code-1
+```
+
+## Best Practices
+
+### 1. Check Dependencies First
+
+Before deleting a model, verify it's not used as a parent in lineage graphs:
+
+```bash
+# Check if artifact has dependents
+curl https://api.example.com/artifact/model/12345/lineage
+
+# Look for edges where this artifact is the parent
+```
+
+### 2. Verify Deletion
+
+Confirm the artifact is gone by attempting retrieval:
+
+```bash
+# Should return 404
+curl https://api.example.com/artifacts/model/12345
+```
+
+### 3. Manual Storage Cleanup
+
+If you need to free S3 storage, manually delete artifact files:
+
+```bash
+# Using AWS CLI
+aws s3 rm s3://your-bucket/artifacts/model/12345.zip
+```
+
+### 4. Bulk Deletion
+
+For deleting multiple artifacts, use a script to avoid manual repetition:
+
+```bash
+#!/bin/bash
+for id in 101 102 103 104; do
+  curl -X DELETE https://api.example.com/artifacts/model/$id
+done
+```
+
+## System Reset
+
+To delete **all** artifacts at once, use the system reset endpoint:
+
+```bash
+curl -X DELETE https://api.example.com/reset
+```
+
+<Warning>
+  **Destructive Operation**: This resets the entire registry to default state, deleting all artifacts and metrics.
+</Warning>
+
+## Implementation Details
+
+The deletion logic is implemented in `/home/daytona/workspace/source/src/api/routers/models.py:1207`:
+
+```python
+@router.delete("/artifacts/{artifact_type}/{id}")
+def artifact_delete(artifact_type: str, id: str):
+    logger.info("DELETE /artifacts/%s/%s", artifact_type, id)
+    
+    # Attempt deletion from registry
+    ok = _registry.delete(id)
+    
+    if not ok:
+        # Artifact not found
+        raise HTTPException(
+            status_code=404, 
+            detail="Artifact does not exist."
+        )
+    
+    logger.info(
+        "artifact_delete: deleted artifact_type=%s id=%s", 
+        artifact_type, 
+        id
+    )
+    
+    return {"status": "deleted", "id": id}
+```
+
+The registry's `delete()` method removes the artifact from the in-memory model list but does not perform S3 cleanup.
+
+## See Also
+
+- [Create Artifact](/api/artifacts/create) - Upload new artifacts
+- [Retrieve Artifact](/api/artifacts/retrieve) - Get artifact details
+- [Update Artifact](/api/artifacts/update) - Modify artifact metadata
+- [System Reset](/api/system/reset) - Clear entire registry

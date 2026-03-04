@@ -1,0 +1,182 @@
+---
+title: 'CLI Installation'
+description: 'Install and configure the Trustworthy Model Registry CLI tool'
+icon: 'download'
+---
+
+## Overview
+
+The Trustworthy Model Registry CLI (`run`) is a command-line tool for evaluating AI models and datasets against trustworthiness metrics. The CLI supports dependency installation, test execution, and batch model evaluation.
+
+## Prerequisites
+
+Before installing the CLI, ensure you have:
+
+- **Python 3.8+** installed on your system
+- **pip** package manager
+- **Git** (for cloning the repository)
+
+## Installation Steps
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/GingerlyData247/SOTeam4-P2.git
+cd SOTeam4-P2
+```
+
+### 2. Make the Run Script Executable
+
+The CLI entrypoint is located at `./run.py` in the project root. Make it executable:
+
+```bash
+chmod +x run.py
+```
+
+On Unix-based systems (Linux/macOS), you can now run the tool directly:
+
+```bash
+./run.py --help
+```
+
+<Info>
+On Windows, you may need to run the script using Python explicitly:
+```bash
+python run.py --help
+```
+</Info>
+
+### 3. Install Dependencies
+
+Use the CLI's built-in install command to set up all required dependencies:
+
+```bash
+./run.py install
+```
+
+This command installs packages from:
+- `requirements.txt` - Core dependencies (requests, huggingface_hub, beautifulsoup4, gitpython, etc.)
+- `requirements-dev.txt` - Development dependencies (pytest, coverage, etc.)
+
+<Note>
+The `install` command uses pip internally and runs:
+```bash
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+</Note>
+
+## Optional: Add to PATH
+
+For easier access, you can add the CLI to your system PATH:
+
+### Linux/macOS
+
+1. Create a symbolic link in a directory that's already in your PATH:
+
+```bash
+sudo ln -s $(pwd)/run.py /usr/local/bin/run
+```
+
+2. Verify the installation:
+
+```bash
+run --help
+```
+
+### Windows
+
+1. Add the project directory to your system PATH:
+   - Right-click **This PC** → **Properties** → **Advanced system settings**
+   - Click **Environment Variables**
+   - Under **System variables**, select **Path** and click **Edit**
+   - Add the full path to your project directory
+
+2. Create a batch file `run.bat` in the project directory:
+
+```batch
+@echo off
+python "%~dp0run.py" %*
+```
+
+## Verify Installation
+
+Confirm the CLI is working correctly:
+
+```bash
+./run.py test
+```
+
+You should see output similar to:
+
+```
+15/15 test cases passed. 87% line coverage achieved.
+```
+
+## Environment Configuration
+
+The CLI supports optional environment variables for logging:
+
+<ParamField path="LOG_FILE" type="string" optional>
+  Path to write log output. If not set, logs are written to stderr.
+  
+  ```bash
+  export LOG_FILE=/var/log/model-registry.log
+  ```
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="integer" optional>
+  Logging verbosity level:
+  - `0` - WARNING (default)
+  - `1` - INFO
+  - `2` - DEBUG
+  
+  ```bash
+  export LOG_LEVEL=1
+  ```
+</ParamField>
+
+## Troubleshooting
+
+### Permission Denied Error
+
+If you get a "Permission denied" error:
+
+```bash
+chmod +x run.py
+```
+
+### Module Not Found Errors
+
+Ensure all dependencies are installed:
+
+```bash
+./run.py install
+```
+
+For development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### Python Version Issues
+
+Check your Python version:
+
+```bash
+python --version
+```
+
+The CLI requires Python 3.8 or higher. Use type annotations and modern Python features.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Commands" icon="terminal" href="/cli/commands">
+    Explore all available commands and options
+  </Card>
+  <Card title="Usage Examples" icon="code" href="/cli/usage-examples">
+    Learn how to evaluate models with real-world examples
+  </Card>
+</CardGroup>

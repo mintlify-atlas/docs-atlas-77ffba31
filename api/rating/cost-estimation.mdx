@@ -1,0 +1,158 @@
+---
+title: Cost Estimation
+description: Estimate deployment costs based on model size and hardware requirements
+---
+
+## Endpoint
+
+```
+GET /artifact/{type}/{id}/cost
+```
+
+Computes deployment cost estimates for an artifact, optionally including costs from all dependencies in the lineage graph.
+
+## Path Parameters
+
+<ParamField path="type" type="string" required>
+  Type of artifact: `model`, `dataset`, or `code`
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  The unique numeric identifier of the artifact (1-12 digits)
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="dependency" type="boolean" default="false">
+  If `true`, includes costs from all parent artifacts in the lineage graph. If `false`, returns only the standalone cost for this artifact.
+</ParamField>
+
+## Response
+
+Returns a cost breakdown object keyed by artifact ID.
+
+### Standalone Mode (dependency=false)
+
+<ResponseField name="{id}" type="object">
+  Cost information for the requested artifact only
+  
+  **Properties:**
+  - `total_cost` (number): Total estimated monthly cost in USD
+</ResponseField>
+
+### Dependency Mode (dependency=true)
+
+<ResponseField name="{id}" type="object">
+  Cost information for each artifact in the lineage graph
+  
+  **Properties:**
+  - `standalone_cost` (number): Cost for this artifact alone, excluding dependencies
+  - `total_cost` (number): Cumulative cost including all parent dependencies
+</ResponseField>
+
+## Cost Components
+
+The cost estimation aggregates four hardware cost factors from artifact metadata:
+
+1. **GPU cost per hour** (`gpu_cost_hour` or `gpu_cost`)
+2. **CPU cost per hour** (`cpu_cost_hour` or `cpu_cost`)
+3. **Memory cost per hour** (`memory_cost_hour` or `mem_cost_hour`)
+4. **Storage cost per month** (`storage_cost_month` or `storage_cost`)
+
+All costs are in USD. The `total_cost` is the sum of these four components.
+
+## Hardware Compatibility Scores
+
+The `/artifact/model/{id}/rate` endpoint returns `size_score`, which provides compatibility ratings (0.0 to 1.0) for different hardware platforms:
+
+- **Raspberry Pi**: Low-power edge device (typically 4-8GB RAM)
+- **Jetson Nano**: NVIDIA edge AI platform (4GB RAM, 128-core GPU)
+- **Desktop PC**: Consumer workstation (16-32GB RAM, consumer GPU)
+- **AWS Server**: Cloud instance (configurable RAM and GPU)
+
+Higher scores indicate better compatibility (models that fit comfortably within hardware constraints).
+
+## Example Requests
+
+### Standalone Cost
+
+```bash
+curl -X GET "https://api.example.com/artifact/model/42/cost"
+```
+
+### Cost with Dependencies
+
+```bash
+curl -X GET "https://api.example.com/artifact/model/42/cost?dependency=true"
+```
+
+## Example Responses
+
+### Standalone Cost
+
+```json
+{
+  "42": {
+    "total_cost": 125.50
+  }
+}
+```
+
+### Cost with Dependencies
+
+```json
+{
+  "42": {
+    "standalone_cost": 125.50,
+    "total_cost": 278.75
+  },
+  "15": {
+    "standalone_cost": 153.25,
+    "total_cost": 153.25
+  }
+}
+```
+
+In this example:
+- Artifact 42 costs $125.50 standalone
+- Artifact 42 has a parent (artifact 15) that costs $153.25
+- Total cost to deploy artifact 42 with all dependencies: $278.75
+
+## Cost Calculation with Dependencies
+
+When `dependency=true`, the cost calculation works as follows:
+
+1. **Build lineage graph**: Use the same parent detection logic as `/artifact/model/{id}/lineage`
+2. **Compute standalone costs**: For each artifact in the graph, sum GPU + CPU + memory + storage costs
+3. **Compute total costs**: For each artifact, add its standalone cost to the total costs of all its parents (recursive)
+4. **Return full breakdown**: All artifacts in the lineage graph are included in the response
+
+This approach helps estimate the true cost of deploying a fine-tuned model when base models must also be loaded or stored.
+
+## Error Responses
+
+<ResponseField name="400" type="error">
+  Invalid artifact type (must be "model", "dataset", or "code") or invalid artifact ID format
+</ResponseField>
+
+<ResponseField name="404" type="error">
+  Artifact not found - the specified ID does not exist in the registry
+</ResponseField>
+
+## Behavior Notes
+
+- **Missing metadata**: If cost fields are not present in artifact metadata, they default to 0.0
+- **External parents**: Dependencies not in the registry (marked as `external:*` in lineage) have zero cost
+- **Recursive calculation**: Costs are memoized during tree traversal to avoid redundant computation
+- **All artifact types**: This endpoint works for models, datasets, and code artifacts
+- **Deterministic output**: Same artifact ID and dependency flag always return the same result
+
+## Size Estimation
+
+Model size (in bytes) is computed from Hugging Face model files:
+
+- `.bin` files (PyTorch checkpoints)
+- `.safetensors` files (SafeTensors format)
+- `.pt` files (PyTorch serialized tensors)
+
+Total size is used to derive hardware compatibility scores in the `size_score` metric, which maps model size to deployment feasibility on different platforms.

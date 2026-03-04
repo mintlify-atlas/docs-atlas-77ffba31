@@ -1,0 +1,169 @@
+---
+title: Lineage Graph
+description: Retrieve the lineage graph showing parent-child relationships between models
+---
+
+## Endpoint
+
+```
+GET /artifact/model/{id}/lineage
+```
+
+Returns a directed graph representing the lineage relationships for a model artifact, including parent models (base models that this model was fine-tuned from) and metadata about how these relationships were discovered.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the model artifact to retrieve lineage for
+</ParamField>
+
+## Response
+
+Returns a lineage graph with nodes and edges.
+
+<ResponseField name="nodes" type="array">
+  Array of model nodes in the lineage graph
+  
+  **Node Properties:**
+  - `artifact_id` (string): Unique identifier for this node. For models in the registry, this is the model ID. For external models, this is prefixed with "external:"
+  - `name` (string): Human-readable name of the model (usually the Hugging Face model ID)
+  - `source` (string): How this parent relationship was discovered (typically "config_json")
+  - `metadata` (object): Additional metadata. External models include `{"external": true}`
+</ResponseField>
+
+<ResponseField name="edges" type="array">
+  Array of directed edges representing parent-child relationships
+  
+  **Edge Properties:**
+  - `from_node_artifact_id` (string): The artifact ID of the parent model
+  - `to_node_artifact_id` (string): The artifact ID of the child model (derived from the parent)
+  - `relationship` (string): Type of relationship, typically "base_model"
+</ResponseField>
+
+## Parent Model Detection
+
+Parent models are identified from structured metadata stored in the model's `config.json` file. The system checks multiple fields:
+
+- `base_model`
+- `teacher_model`
+- `parent_model`
+- `source_model`
+- `original_model`
+- `pretrained_model_name_or_path`
+
+If a parent model exists in the registry, it is linked directly. If the parent model is not in the registry (external dependency), it is included as an external node with a placeholder ID.
+
+## Tree Score Calculation
+
+The `tree_score` metric (available via the `/artifact/model/{id}/rate` endpoint) uses lineage information to compute a quality score that incorporates ancestor model metrics:
+
+1. Compute the model's own aggregate metric score
+2. Recursively walk the lineage tree to collect ancestor scores
+3. Combine the model's score with the average ancestor score: `(own_score + avg_ancestor_score) / 2`
+
+This approach rewards models with high-quality lineage while still prioritizing the model's own metrics.
+
+## Example Request
+
+```bash
+curl -X GET https://api.example.com/artifact/model/42/lineage
+```
+
+## Example Response
+
+### Model with Registered Parent
+
+```json
+{
+  "nodes": [
+    {
+      "artifact_id": "42",
+      "name": "my-org/my-finetuned-model",
+      "source": "config_json",
+      "metadata": {}
+    },
+    {
+      "artifact_id": "15",
+      "name": "facebook/wav2vec2-base",
+      "source": "config_json",
+      "metadata": {}
+    }
+  ],
+  "edges": [
+    {
+      "from_node_artifact_id": "15",
+      "to_node_artifact_id": "42",
+      "relationship": "base_model"
+    }
+  ]
+}
+```
+
+### Model with External Parent
+
+```json
+{
+  "nodes": [
+    {
+      "artifact_id": "42",
+      "name": "my-org/custom-bert",
+      "source": "config_json",
+      "metadata": {}
+    },
+    {
+      "artifact_id": "external:bert-base-uncased",
+      "name": "bert-base-uncased",
+      "source": "config_json",
+      "metadata": {
+        "external": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from_node_artifact_id": "external:bert-base-uncased",
+      "to_node_artifact_id": "42",
+      "relationship": "base_model"
+    }
+  ]
+}
+```
+
+### Model with No Parents
+
+```json
+{
+  "nodes": [
+    {
+      "artifact_id": "42",
+      "name": "my-org/standalone-model",
+      "source": "config_json",
+      "metadata": {}
+    }
+  ],
+  "edges": []
+}
+```
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  Artifact not found - the specified model ID does not exist in the registry
+</ResponseField>
+
+## Lineage Graph Structure
+
+The lineage graph follows these principles:
+
+- **Root node first**: The requested model is always the first node in the array
+- **Directed edges**: Edges point from parent (base model) to child (fine-tuned model)
+- **External dependencies**: Models not in the registry are marked with `artifact_id` prefix "external:" and `metadata.external = true`
+- **Single-level depth**: Currently returns immediate parents only (not recursive ancestors)
+- **Deterministic**: Same model ID always returns the same graph structure
+
+## Use Cases
+
+- **Model provenance**: Track which base models were used to create fine-tuned models
+- **Quality assessment**: Use lineage in combination with tree_score to evaluate model trustworthiness
+- **Dependency analysis**: Identify external dependencies that may affect reproducibility
+- **Visualization**: Build model family trees and lineage diagrams

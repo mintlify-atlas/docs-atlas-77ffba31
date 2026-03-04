@@ -1,0 +1,159 @@
+---
+title: "Create Artifact"
+api: "POST /artifact/{artifact_type}"
+description: "Upload and register a new artifact (model, dataset, or code) to the registry"
+---
+
+## Endpoint
+
+<ParamField path="artifact_type" type="string" required>
+  Type of artifact to create. Must be one of:
+  - `model` - Machine learning model (triggers HuggingFace ingestion)
+  - `dataset` - Training or evaluation dataset
+  - `code` - Code repository or training script
+</ParamField>
+
+## Authentication
+
+Authentication headers may be required depending on deployment configuration.
+
+## Request Body
+
+<ParamField body="url" type="string" required>
+  Source URL of the artifact. Maximum length: 2048 characters.
+  
+  For models: HuggingFace model URL or ID (e.g., `https://huggingface.co/google-bert/bert-base-uncased` or `google-bert/bert-base-uncased`)
+  
+  For datasets/code: Any valid URL pointing to the resource
+</ParamField>
+
+<ParamField body="name" type="string">
+  Custom name for the artifact. If not provided, the name will be extracted from the URL path.
+</ParamField>
+
+<ParamField body="download_url" type="string">
+  Optional pre-signed download URL for the artifact. If not provided, one may be automatically generated for model artifacts.
+</ParamField>
+
+## Response
+
+Returns HTTP 201 on success with the created artifact details.
+
+<ResponseField name="metadata" type="object" required>
+  Artifact metadata
+  
+  <ResponseField name="metadata.name" type="string">
+    Name of the artifact
+  </ResponseField>
+  
+  <ResponseField name="metadata.id" type="string">
+    Unique identifier assigned to the artifact
+  </ResponseField>
+  
+  <ResponseField name="metadata.type" type="string">
+    Type of artifact: `model`, `dataset`, or `code`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  Artifact data and URLs
+  
+  <ResponseField name="data.url" type="string">
+    Source URL of the artifact
+  </ResponseField>
+  
+  <ResponseField name="data.download_url" type="string">
+    Pre-signed download URL (if available)
+  </ResponseField>
+</ResponseField>
+
+## Error Codes
+
+- `400` - Invalid artifact type or malformed request
+- `413` - URL exceeds maximum length (2048 characters)
+- `424` - Model ingestion rejected due to insufficient reviewedness score (< 0.5)
+- `500` - Internal server error during artifact creation
+
+## Model Artifact Behavior
+
+When creating a **model** artifact, the system automatically:
+
+1. Normalizes the HuggingFace model ID from the URL
+2. Fetches model metadata and license information from HuggingFace
+3. Computes trustworthiness metrics (reviewedness, reproducibility, etc.)
+4. **Validates reviewedness score** - rejects models with reviewedness < 0.5
+5. Extracts parent dependencies for lineage tracking
+6. Creates a minimal artifact ZIP containing source URL
+7. Uploads the artifact to S3 storage
+8. Generates a pre-signed download URL
+
+## Dataset and Code Artifacts
+
+For **dataset** and **code** artifacts:
+- No automatic metadata extraction
+- No metric computation
+- Simple registration with provided URL and name
+- No automatic storage upload (unless download_url is provided)
+
+## Examples
+
+<CodeGroup>
+
+```bash Create Model Artifact
+curl -X POST https://api.example.com/artifact/model \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "name": "BERT Base Uncased"
+  }'
+```
+
+```bash Create Model with Short ID
+curl -X POST https://api.example.com/artifact/model \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "google-bert/bert-base-uncased"
+  }'
+```
+
+```bash Create Dataset Artifact
+curl -X POST https://api.example.com/artifact/dataset \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://huggingface.co/datasets/squad",
+    "name": "SQuAD Dataset"
+  }'
+```
+
+```bash Create Code Artifact
+curl -X POST https://api.example.com/artifact/code \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://github.com/huggingface/transformers",
+    "name": "Transformers Library"
+  }'
+```
+
+</CodeGroup>
+
+## Response Example
+
+```json
+{
+  "metadata": {
+    "name": "BERT Base Uncased",
+    "id": "12345",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/bucket/artifacts/model/12345.zip?signature=..."
+  }
+}
+```
+
+## See Also
+
+- [Ingest Artifact](/api/artifacts/ingest) - Alternative endpoint for HuggingFace model ingestion
+- [Retrieve Artifact](/api/artifacts/retrieve) - Get artifact details
+- [Update Artifact](/api/artifacts/update) - Modify artifact metadata

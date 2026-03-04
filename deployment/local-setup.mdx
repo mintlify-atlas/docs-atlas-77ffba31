@@ -1,0 +1,274 @@
+---
+title: Local Development Setup
+description: Set up the Trustworthy Model Registry for local development
+---
+
+## Prerequisites
+
+Before setting up the Trustworthy Model Registry locally, ensure you have the following installed:
+
+<CardGroup cols={3}>
+  <Card title="Python 3.12" icon="python">
+    Required Python version for running the application
+  </Card>
+  <Card title="Git" icon="git">
+    Version control system for cloning the repository
+  </Card>
+  <Card title="AWS Account" icon="aws">
+    Free tier AWS account for S3 storage and authentication
+  </Card>
+</CardGroup>
+
+## Installation
+
+### Clone the Repository
+
+```bash
+git clone <repository-url>
+cd trustworthy-model-registry
+```
+
+### Create Virtual Environment
+
+Create and activate a Python virtual environment:
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+### Install Dependencies
+
+Install all required packages from `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+The following key packages will be installed:
+- **FastAPI** (>=0.115) - Web framework
+- **Uvicorn** (>=0.30) - ASGI server
+- **Pydantic** (>=2.8) - Data validation
+- **Boto3** (>=1.34) - AWS SDK
+- **Mangum** (>=0.17) - AWS Lambda adapter
+- **HuggingFace Hub** - Model metadata fetching
+- **GitPython** - Repository analysis
+- **BeautifulSoup4** - HTML parsing
+
+<Note>
+The complete list of dependencies can be found in the `requirements.txt` file in the repository root.
+</Note>
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root with the required environment variables:
+
+```bash .env
+# AWS Configuration (Required)
+AWS_REGION=us-east-2
+S3_BUCKET=your-s3-bucket-name
+
+# Authentication (Required)
+AUTH_TOKEN=your-default-admin-token
+
+# Optional: API Tokens
+HUGGINGFACE_HUB_TOKEN=your-hf-token
+GITHUB_TOKEN=your-github-token
+
+# Optional: Logging Configuration
+LOG_LEVEL=1  # 0=silent, 1=INFO, 2=DEBUG
+LOG_FILE=/tmp/tmr.log
+
+# Optional: Local Development Mode
+LOCAL_STORAGE=0  # Set to 1 to use local filesystem instead of S3
+```
+
+<Info>
+For local development, you can set `LOCAL_STORAGE=1` to use local filesystem storage instead of S3. Artifacts will be stored in `/tmp/local-artifacts/`.
+</Info>
+
+### AWS Credentials
+
+Ensure your AWS credentials are configured. You can either:
+
+1. **Use AWS CLI configuration:**
+   ```bash
+   aws configure
+   ```
+
+2. **Set environment variables:**
+   ```bash
+   export AWS_ACCESS_KEY_ID=your-access-key
+   export AWS_SECRET_ACCESS_KEY=your-secret-key
+   ```
+
+3. **Use IAM roles** (recommended for EC2/Lambda deployments)
+
+## Running Locally
+
+### Start the Development Server
+
+Run the application using Uvicorn:
+
+```bash
+uvicorn src.run:app --reload
+```
+
+The `--reload` flag enables auto-reload on code changes, which is useful during development.
+
+<Tip>
+The application will start on `http://localhost:8000` by default.
+</Tip>
+
+### Alternative: Using Python Module
+
+You can also run the application directly as a Python module:
+
+```bash
+python -m uvicorn src.main:app --reload
+```
+
+### Custom Port and Host
+
+To run on a different port or host:
+
+```bash
+uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+## Accessing the API
+
+### Interactive API Documentation (Swagger UI)
+
+Once the server is running, access the interactive API documentation at:
+
+```
+http://localhost:8000/docs
+```
+
+The Swagger UI provides:
+- Complete API endpoint documentation
+- Interactive request/response testing
+- Schema definitions
+- Authentication configuration
+
+### Alternative API Documentation (ReDoc)
+
+Alternatively, access the ReDoc documentation at:
+
+```
+http://localhost:8000/redoc
+```
+
+### Health Check Endpoint
+
+Verify the application is running correctly:
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "uptime_s": 123,
+  "models": 0
+}
+```
+
+## CLI Commands
+
+The registry also provides command-line functionality for Phase 1 compatibility:
+
+### Install Dependencies
+
+```bash
+python src/run.py install
+```
+
+### Run Tests
+
+```bash
+python src/run.py test
+```
+
+This will execute the test suite with coverage reporting.
+
+### Process URL File
+
+```bash
+python src/run.py urls.txt
+```
+
+Processes a file containing model URLs (one per line or comma-separated).
+
+## Testing the Installation
+
+### 1. Check Health Endpoint
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+### 2. Ingest a Model
+
+```bash
+curl -X POST http://localhost:8000/api/artifact/model \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://huggingface.co/gpt2",
+    "name": "gpt2"
+  }'
+```
+
+### 3. List Artifacts
+
+```bash
+curl -X POST http://localhost:8000/api/artifacts \
+  -H "Content-Type: application/json" \
+  -d '[{"name": "*"}]'
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Module Import Errors">
+    Ensure your `PYTHONPATH` includes the project root:
+    ```bash
+    export PYTHONPATH=/path/to/trustworthy-model-registry:$PYTHONPATH
+    ```
+  </Accordion>
+
+  <Accordion title="S3 Connection Errors">
+    - Verify your AWS credentials are configured correctly
+    - Check that the S3 bucket exists and is in the correct region
+    - Ensure your AWS user has appropriate S3 permissions
+    - For local development, consider setting `LOCAL_STORAGE=1`
+  </Accordion>
+
+  <Accordion title="Port Already in Use">
+    If port 8000 is already in use, specify a different port:
+    ```bash
+    uvicorn src.main:app --port 8080 --reload
+    ```
+  </Accordion>
+
+  <Accordion title="HuggingFace API Errors">
+    - Set `HUGGINGFACE_HUB_TOKEN` in your `.env` file for rate limit increases
+    - Some models require authentication to access
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Learn about all available environment variables
+  </Card>
+  <Card title="AWS Deployment" icon="aws" href="/deployment/aws-deployment">
+    Deploy to AWS Lambda and API Gateway
+  </Card>
+</CardGroup>

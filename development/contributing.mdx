@@ -1,0 +1,515 @@
+---
+title: Contributing
+description: Learn how to contribute to the Trustworthy Model Registry project
+---
+
+## Overview
+
+We welcome contributions to the Trustworthy Model Registry! This guide will help you get started with development setup, code conventions, and the contribution process.
+
+## How to Contribute
+
+Contributions can take many forms:
+
+- **Bug fixes** - Fix issues in existing functionality
+- **New features** - Add new metrics, API endpoints, or capabilities
+- **Documentation** - Improve or expand documentation
+- **Tests** - Add test coverage for untested code
+- **Performance improvements** - Optimize existing code
+- **Code quality** - Refactor code for better maintainability
+
+## Development Setup
+
+### Prerequisites
+
+- **Python 3.11 or 3.12** - The project uses Python 3.11 for CI and 3.12 for Lambda deployment
+- **Git** - For version control
+- **AWS account** (optional) - For testing cloud deployments (free tier compatible)
+
+### Local Installation
+
+1. **Clone the repository:**
+
+```bash
+git clone https://github.com/your-org/trustworthy-model-registry.git
+cd trustworthy-model-registry
+```
+
+2. **Create a virtual environment:**
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. **Install dependencies:**
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+4. **Install development dependencies:**
+
+Development dependencies are included in `requirements-dev.txt`:
+
+```
+pytest
+pytest-mock
+pytest-cov
+coverage
+requests-mock
+```
+
+These are also included in `requirements.txt` for CI/CD compatibility, so the main installation command covers everything.
+
+### Configuration
+
+Set up environment variables for local development:
+
+```bash
+# AWS configuration (optional for local development)
+export AWS_REGION=us-east-2
+export STORAGE_BUCKET=your-s3-bucket-name
+
+# Authentication (optional)
+export AUTH_TOKEN=your-development-token
+
+# Logging configuration
+export LOG_LEVEL=2  # 0=WARNING, 1=INFO, 2=DEBUG
+export LOG_FILE=/path/to/logfile.log
+```
+
+### Running Locally
+
+Start the FastAPI development server:
+
+```bash
+uvicorn src.run:app --reload
+```
+
+The API will be available at:
+- **API**: http://localhost:8000
+- **Swagger UI**: http://localhost:8000/docs
+- **Health check**: http://localhost:8000/health
+
+### Using the CLI
+
+The project includes a CLI tool (`run` or `run.py`):
+
+```bash
+# Install dependencies
+./run install
+
+# Run test suite
+./run test
+
+# Process URLs from a file
+./run urls.txt
+```
+
+## Code Style and Conventions
+
+### Python Style
+
+The project follows standard Python conventions with some flexibility:
+
+- **Line length**: Maximum 120 characters (enforced by flake8 in CI)
+- **Imports**: Group standard library, third-party, and local imports
+- **Type hints**: Use type hints for function signatures when possible
+- **Docstrings**: Document all modules, classes, and non-trivial functions
+
+### Code Organization
+
+The project follows a modular architecture:
+
+```
+src/
+├── api/           # FastAPI route handlers
+├── aws/           # AWS service integrations (S3, Lambda)
+├── main.py        # FastAPI application factory
+├── metrics/       # Trust metric implementations
+├── repositories/  # Data access layer
+├── run.py         # CLI entry point
+├── schemas/       # Pydantic models and API schemas
+├── services/      # Business logic layer
+└── utils/         # Shared utilities
+```
+
+### File Headers
+
+Include descriptive headers at the top of files:
+
+```python
+# ---------------------------------------------------------------------------
+# Module: Brief Description
+#
+# Detailed description of the module's purpose, behavior, and design.
+#
+# Key features:
+#   - Feature 1
+#   - Feature 2
+#
+# Dependencies: List any critical external dependencies
+# ---------------------------------------------------------------------------
+```
+
+### Function Documentation
+
+Document functions with clear docstrings:
+
+```python
+def compute_metric(resource: dict) -> tuple[float, int]:
+    """
+    Computes the trust metric score for a given resource.
+
+    Args:
+        resource: Dictionary containing resource metadata (name, url, etc.)
+
+    Returns:
+        Tuple of (score, latency_ms) where:
+        - score: Normalized metric score between 0.0 and 1.0
+        - latency_ms: Computation time in milliseconds
+
+    Raises:
+        ValueError: If resource is missing required fields
+    """
+    pass
+```
+
+### Test Documentation
+
+Tests should have descriptive names and docstrings:
+
+```python
+def test_compute_bus_factor_single_contributor_zero():
+    """
+    A commit history with only one contributor should yield 0.0
+    from compute_bus_factor_from_commits.
+    """
+    commits = ["alice"] * 20
+    score = compute_bus_factor_from_commits(commits)
+    assert score == 0.0
+```
+
+## Testing Requirements
+
+### Writing Tests
+
+All new code should include tests. See the [Testing documentation](/development/testing) for detailed guidance.
+
+**Requirements:**
+
+1. **Unit tests** for all new functions and classes
+2. **Integration tests** for new API endpoints
+3. **Mock external dependencies** (GitHub API, Hugging Face API, AWS services)
+4. **Deterministic tests** - No network calls or random behavior
+5. **Fast tests** - Tests should run quickly (< 1 second per test)
+
+### Running Tests
+
+Before submitting a pull request:
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=term
+
+# Run specific test file
+pytest tests/unit/test_your_feature.py
+```
+
+Ensure all tests pass before creating a pull request.
+
+### Test Coverage
+
+Aim for high test coverage on new code:
+
+```bash
+# Generate coverage report
+pytest --cov=src --cov-report=html
+
+# View coverage
+open htmlcov/index.html
+```
+
+While there's no strict coverage threshold, aim for at least 80% coverage on new code.
+
+## Pull Request Process
+
+### 1. Create a Feature Branch
+
+Create a new branch for your work:
+
+```bash
+git checkout -b feature/your-feature-name
+```
+
+Branch naming conventions:
+- `feature/` - New features
+- `fix/` - Bug fixes
+- `docs/` - Documentation updates
+- `refactor/` - Code refactoring
+- `test/` - Test additions or improvements
+
+### 2. Make Your Changes
+
+- Write clean, documented code
+- Follow the code style guidelines
+- Add tests for new functionality
+- Update documentation if needed
+
+### 3. Test Your Changes
+
+```bash
+# Run tests
+pytest
+
+# Check code style
+flake8 --max-line-length=120 src/ tests/
+
+# Test locally
+uvicorn src.run:app --reload
+```
+
+### 4. Commit Your Changes
+
+Write clear, descriptive commit messages:
+
+```bash
+git add .
+git commit -m "Add bus factor metric with GitHub API integration"
+```
+
+**Commit message guidelines:**
+- Use present tense ("Add feature" not "Added feature")
+- Be specific about what changed and why
+- Reference issue numbers if applicable ("Fix #123: ...")
+
+### 5. Push and Create Pull Request
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Then:
+1. Navigate to the repository on GitHub
+2. Click **New Pull Request**
+3. Select your branch
+4. Fill in the PR template
+
+### 6. PR Template
+
+Provide a clear description of your changes:
+
+```markdown
+## Summary
+- Brief description of what this PR does
+- Why these changes are needed
+
+## Changes
+- Detailed list of changes
+- New files added
+- Modified functionality
+
+## Testing
+- How you tested these changes
+- Any new tests added
+- Coverage improvements
+
+## Checklist
+- [ ] Tests pass locally
+- [ ] Code follows style guidelines
+- [ ] Documentation updated
+- [ ] No breaking changes (or documented if necessary)
+```
+
+### 7. Code Review
+
+Your PR will be reviewed by maintainers:
+
+- **Respond to feedback** - Address review comments promptly
+- **Make requested changes** - Update your branch based on feedback
+- **Keep discussions focused** - Stay on topic in review comments
+
+### 8. CI Checks
+
+The following checks must pass before merging:
+
+- **Tests** - All pytest tests must pass
+- **Linting** - Code must pass flake8 checks (optional but recommended)
+- **No conflicts** - Branch must be up-to-date with main
+
+### 9. Merge
+
+Once approved and all checks pass:
+
+1. Maintainer will merge your PR
+2. Automated deployment will trigger (if applicable)
+3. Your changes will be live in the next release
+
+## Development Workflow
+
+### Typical Development Cycle
+
+1. **Sync with main:**
+   ```bash
+   git checkout main
+   git pull origin main
+   ```
+
+2. **Create feature branch:**
+   ```bash
+   git checkout -b feature/new-metric
+   ```
+
+3. **Develop and test:**
+   ```bash
+   # Make changes
+   vim src/metrics/new_metric.py
+   
+   # Write tests
+   vim tests/unit/test_new_metric.py
+   
+   # Run tests
+   pytest tests/unit/test_new_metric.py
+   ```
+
+4. **Commit frequently:**
+   ```bash
+   git add .
+   git commit -m "Add new metric implementation"
+   ```
+
+5. **Push and create PR:**
+   ```bash
+   git push origin feature/new-metric
+   ```
+
+### Keeping Your Branch Updated
+
+If main branch is updated while you're working:
+
+```bash
+# Fetch latest changes
+git fetch origin
+
+# Rebase your branch
+git checkout feature/your-feature
+git rebase origin/main
+
+# Force push if already pushed
+git push --force-with-lease origin feature/your-feature
+```
+
+## Common Development Tasks
+
+### Adding a New Metric
+
+1. Create metric implementation in `src/metrics/`:
+   ```python
+   # src/metrics/new_metric.py
+   def metric(resource: dict) -> tuple[float, int]:
+       """Compute metric score."""
+       # Implementation
+       return score, latency
+   ```
+
+2. Add unit tests in `tests/unit/`:
+   ```python
+   # tests/unit/test_new_metric.py
+   def test_new_metric_basic_case():
+       score, latency = metric({"name": "test"})
+       assert 0.0 <= score <= 1.0
+   ```
+
+3. Register metric in the scoring service
+4. Update API documentation
+
+### Adding a New API Endpoint
+
+1. Define schema in `src/schemas/`:
+   ```python
+   # src/schemas/requests.py
+   class NewRequest(BaseModel):
+       field: str
+   ```
+
+2. Create route handler in `src/api/`:
+   ```python
+   # src/api/routes.py
+   @router.post("/new-endpoint")
+   async def new_endpoint(request: NewRequest):
+       # Implementation
+       return {"result": "success"}
+   ```
+
+3. Add integration tests in `tests/integration/`
+4. Update OpenAPI documentation
+
+### Updating Dependencies
+
+To add a new dependency:
+
+1. Add to `requirements.txt`:
+   ```
+   new-package>=1.0.0
+   ```
+
+2. Install locally:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Test thoroughly
+4. Document why the dependency is needed in your PR
+
+## Getting Help
+
+### Resources
+
+- **Documentation**: Browse the full documentation site
+- **Issues**: Check existing GitHub issues
+- **Discussions**: Use GitHub Discussions for questions
+
+### Asking Questions
+
+When asking for help:
+
+1. **Check documentation first** - Your question may already be answered
+2. **Search existing issues** - Someone may have had the same problem
+3. **Provide context** - Include error messages, code snippets, and what you've tried
+4. **Be specific** - "How do I add a metric?" is better than "How does this work?"
+
+## Code of Conduct
+
+### Be Respectful
+
+- Treat all contributors with respect
+- Provide constructive feedback
+- Focus on the code, not the person
+- Welcome newcomers and help them learn
+
+### Be Professional
+
+- Keep discussions on-topic
+- Avoid inflammatory language
+- Respect different viewpoints and experiences
+- Accept constructive criticism gracefully
+
+## License
+
+By contributing to this project, you agree that your contributions will be licensed under the same license as the project.
+
+This project is provided for academic and demonstration purposes as part of ECE 461/30861 Software Engineering.
+
+## Recognition
+
+Contributors are recognized in:
+- Git commit history
+- Pull request discussions
+- Release notes (for significant contributions)
+
+Thank you for contributing to the Trustworthy Model Registry!

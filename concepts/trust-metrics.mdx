@@ -1,0 +1,584 @@
+---
+title: Trust metrics
+description: How the Trustworthy Model Registry scores models across 13+ trust dimensions
+---
+
+The Trustworthy Model Registry evaluates models using a comprehensive set of metrics that assess trustworthiness, usability, and deployment readiness. All metrics return a score between **0.0** (poor) and **1.0** (excellent), along with measured latency in milliseconds.
+
+## Net score
+
+The **net score** is the average of all computed metrics, providing a single trustworthiness indicator:
+
+```python
+# From src/run.py:322-323
+numeric = [s for (s, _) in results.values() if isinstance(s, (int, float))]
+out["net_score"] = round(sum(numeric) / len(numeric), 4) if numeric else 0.0
+```
+
+## Reproducibility
+
+**Evaluates**: How easily a model's results can be reproduced
+
+**Source**: `src/metrics/reproducibility.py`
+
+### Calculation method
+
+The metric inspects local repository files or falls back to remote metadata:
+
+#### Local repository analysis (preferred)
+
+```python
+# From src/metrics/reproducibility.py:47-86
+Weights:
+  requirements.txt   → +0.4
+  environment.yml    → +0.2
+  .ipynb notebook    → +0.2
+  README with 'reproduce' → +0.2
+```
+
+#### Remote fallback
+
+For Hugging Face models without local files:
+
+```python
+# From src/metrics/reproducibility.py:89-106
+if any(k in info for k in ("training", "datasets", "config")):
+    return 0.8
+```
+
+### Scoring examples
+
+<AccordionGroup>
+  <Accordion title="High score (0.8-1.0)">
+    - Has `requirements.txt` (0.4)
+    - Has `environment.yml` (0.2)
+    - Includes Jupyter notebooks (0.2)
+    - README mentions reproduction (0.2)
+    - **Total**: 1.0
+  </Accordion>
+
+  <Accordion title="Medium score (0.4-0.7)">
+    - Has `requirements.txt` (0.4)
+    - No environment file
+    - No notebooks
+    - **Total**: 0.4
+  </Accordion>
+
+  <Accordion title="Low score (0.0-0.3)">
+    - No dependency files
+    - No notebooks
+    - No reproduction instructions
+    - **Total**: 0.0
+  </Accordion>
+</AccordionGroup>
+
+## Reviewedness
+
+**Evaluates**: How thoroughly a model has been reviewed by the community
+
+**Source**: `src/metrics/reviewedness.py`
+
+### Calculation method
+
+Combines three signals from Hugging Face:
+
+```python
+# From src/metrics/reviewedness.py:110
+score = 0.60*downloads + 0.25*likes + 0.15*card_quality
+```
+
+#### Download count scoring
+
+```python
+# From src/metrics/reviewedness.py:58-67
+if downloads >= 20_000_000: return 1.0
+if downloads >= 5_000_000:  return 0.9
+if downloads >= 1_000_000:  return 0.8
+if downloads >= 100_000:    return 0.6
+if downloads >= 10_000:     return 0.4
+if downloads >= 1_000:      return 0.2
+if downloads > 0:           return 0.1
+return 0.0
+```
+
+#### Like count scoring
+
+```python
+# From src/metrics/reviewedness.py:69-76
+if likes >= 1000: return 1.0
+if likes >= 200:  return 0.8
+if likes >= 50:   return 0.6
+if likes >= 10:   return 0.4
+if likes >= 1:    return 0.2
+return 0.0
+```
+
+#### Model card quality
+
+```python
+# From src/metrics/reviewedness.py:78-98
+score = 0.3  # base for having a card
+
+if any(k in card for k in ("model-index", "metrics", "evaluation", "results")):
+    score += 0.4
+
+if any(k in card for k in ("datasets", "language", "license")):
+    score += 0.2
+
+if any("arxiv" in str(v).lower() for v in card.values()):
+    score += 0.1
+```
+
+### Scoring examples
+
+<CodeGroup>
+```python High reviewedness (0.8+)
+Downloads: 5,000,000  → 0.9 × 0.60 = 0.54
+Likes: 200            → 0.8 × 0.25 = 0.20
+Card quality: 1.0     → 1.0 × 0.15 = 0.15
+Total: 0.89
+```
+
+```python Low reviewedness (< 0.5)
+Downloads: 100        → 0.1 × 0.60 = 0.06
+Likes: 2              → 0.2 × 0.25 = 0.05
+Card quality: 0.3     → 0.3 × 0.15 = 0.045
+Total: 0.155
+```
+</CodeGroup>
+
+<Note>
+Models with reviewedness < 0.5 are **rejected during ingestion** (see `src/api/routers/models.py:356`).
+</Note>
+
+## License compatibility
+
+**Evaluates**: Suitability of a model's license for reuse
+
+**Source**: `src/metrics/license.py`
+
+### Calculation method
+
+```python
+# From src/metrics/license.py:67-100
+permissive = {
+    "apache-2.0", "mit", "bsd-2-clause", "bsd-3-clause",
+    "mpl-2.0", "unlicense", "cc-by-4.0", "cc-by-sa-4.0"
+}
+
+weak = {
+    "lgpl-2.1", "lgpl-3.0", "epl-2.0",
+    "cc-by-nc-4.0", "cc-by-nc-sa-4.0"
+}
+
+if license in permissive: return 1.0
+if license in weak: return 0.6
+if license exists but unknown: return 0.3
+return 0.0
+```
+
+### Scoring examples
+
+| License | Score | Reason |
+|---------|-------|--------|
+| `apache-2.0` | 1.0 | Permissive |
+| `mit` | 1.0 | Permissive |
+| `lgpl-3.0` | 0.6 | Weak copyleft |
+| `cc-by-nc-4.0` | 0.6 | Non-commercial |
+| `custom-license` | 0.3 | Unknown |
+| No license | 0.0 | Missing |
+
+## Code quality
+
+**Evaluates**: Structural and documentation quality of the repository
+
+**Source**: `src/metrics/code_quality.py`
+
+### Calculation method
+
+```python
+# From src/metrics/code_quality.py:170-177
+score = (
+    0.35 * documentation_score +
+    0.25 * structure_score +
+    0.20 * popularity_score +
+    0.20 * library_score
+)
+```
+
+#### Documentation score (35% weight)
+
+```python
+# From src/metrics/code_quality.py:101-118
+score = 0.0
+if has_readme: score += 0.4
+if has_model_card: score += 0.3
+if card_has_usage_info: score += 0.2
+if has_examples_or_notebooks: score += 0.1
+```
+
+#### Structure score (25% weight)
+
+```python
+# From src/metrics/code_quality.py:121-130
+score = 0.2  # base
+if has_config_files: score += 0.3
+if has_examples_or_notebooks: score += 0.3
+if file_count >= 10: score += 0.2
+```
+
+#### Popularity score (20% weight)
+
+```python
+# From src/metrics/code_quality.py:133-141
+if downloads >= 10_000_000: return 1.0
+if downloads >= 1_000_000:  return 0.9
+if downloads >= 100_000:    return 0.75
+if downloads >= 10_000:     return 0.6
+if downloads >= 1_000:      return 0.4
+if downloads > 0:           return 0.2
+```
+
+#### Library score (20% weight)
+
+```python
+# From src/metrics/code_quality.py:144-156
+if "transformers" in tags or library == "transformers": return 1.0
+if library in {"pytorch", "tensorflow", "keras", "sklearn"}: return 0.8
+if has_pipeline_tag: return 0.7
+return 0.3  # default
+```
+
+## Bus factor
+
+**Evaluates**: Project maintainability risk based on contributor count
+
+**Source**: `src/metrics/bus_factor.py`
+
+### Calculation method
+
+```python
+# From src/metrics/bus_factor.py:107
+score = min(1.0, contributor_count / 10)
+```
+
+### Scoring examples
+
+| Contributors | Score | Interpretation |
+|--------------|-------|----------------|
+| 1 | 0.1 | High risk (single maintainer) |
+| 5 | 0.5 | Medium risk |
+| 10+ | 1.0 | Low risk (distributed knowledge) |
+
+<Warning>
+Requires a valid GitHub repository link. Returns 0.0 if no GitHub URL is found.
+</Warning>
+
+## Ramp-up time
+
+**Evaluates**: How easy it is to get started with the model
+
+**Source**: `src/metrics/ramp_up_time.py`
+
+### Calculation method
+
+Analyzes README quality:
+
+```python
+# From src/metrics/ramp_up_time.py:193-199
+total = length_score + install_score + code_score
+
+# Length scoring
+if word_count >= 500:  length_score = 0.4
+if 200 <= word_count < 500:  length_score = 0.25
+if 50 <= word_count < 200:   length_score = 0.1
+if word_count < 50:  length_score = 0.0
+
+# Installation section: +0.35 if present
+# Code snippets: +0.25 if present
+```
+
+### Scoring examples
+
+<Tabs>
+  <Tab title="Excellent (1.0)">
+    - README with 800 words (0.4)
+    - Installation section with `pip install` (0.35)
+    - Code examples in fenced blocks (0.25)
+    - **Total**: 1.0
+  </Tab>
+
+  <Tab title="Good (0.65)">
+    - README with 300 words (0.25)
+    - Installation instructions (0.35)
+    - No code examples
+    - **Total**: 0.6
+  </Tab>
+
+  <Tab title="Poor (0.1)">
+    - README with 80 words (0.1)
+    - No installation section
+    - No code examples
+    - **Total**: 0.1
+  </Tab>
+</Tabs>
+
+## Performance claims
+
+**Evaluates**: Credibility of performance claims based on adoption
+
+**Source**: `src/metrics/performance_claims.py`
+
+### Calculation method
+
+Uses download count as a proxy:
+
+```python
+# From src/metrics/performance_claims.py:78-89
+if downloads > 1_000_000: score = 1.0
+elif downloads > 100_000: score = 0.8
+elif downloads > 10_000:  score = 0.6
+elif downloads > 1_000:   score = 0.4
+elif downloads > 100:     score = 0.2
+else: score = 0.1
+```
+
+## Dataset quality
+
+**Evaluates**: Quality of datasets associated with the model
+
+**Source**: `src/metrics/dataset_quality.py`
+
+### Calculation method
+
+1. Extract dataset references from model tags and README
+2. Score each dataset:
+
+```python
+# From src/metrics/dataset_quality.py:57-66
+card = 0.5 if dataset_has_card else 0.0
+downloads = 0.3 if dataset_downloads > 1000 else 0.0
+likes = 0.2 if dataset_likes > 10 else 0.0
+return card + downloads + likes
+```
+
+3. Return the **maximum** dataset score found
+
+### Scoring examples
+
+| Dataset quality | Card | Downloads | Likes | Score |
+|-----------------|------|-----------|-------|-------|
+| High | Yes (0.5) | Over 1000 (0.3) | Over 10 (0.2) | 1.0 |
+| Medium | Yes (0.5) | Under 1000 (0.0) | Over 10 (0.2) | 0.7 |
+| Low | No (0.0) | Under 1000 (0.0) | Under 10 (0.0) | 0.0 |
+
+## Dataset and code score
+
+**Evaluates**: Availability of supporting resources
+
+**Source**: `src/metrics/dataset_and_code_score.py`
+
+### Calculation method
+
+```python
+# From src/metrics/dataset_and_code_score.py:78-81
+if has_dataset and has_github:
+    score = 1.0
+elif has_dataset or has_github:
+    score = 0.5
+else:
+    score = 0.0
+```
+
+### Scoring examples
+
+| Dataset link | GitHub link | Score |
+|--------------|-------------|-------|
+| ✓ | ✓ | 1.0 |
+| ✓ | ✗ | 0.5 |
+| ✗ | ✓ | 0.5 |
+| ✗ | ✗ | 0.0 |
+
+## Size compatibility
+
+**Evaluates**: Deployment suitability across hardware platforms
+
+**Source**: `src/metrics/size.py`
+
+### Calculation method
+
+Returns a **dictionary** of scores for different hardware targets:
+
+```python
+# From src/metrics/size.py:48-53
+HARDWARE_MAX_GB = {
+    "raspberry_pi": 1.0,
+    "jetson_nano": 2.0,
+    "desktop_pc": 6.0,
+    "aws_server": 10.0,
+}
+
+# Scoring formula (src/metrics/size.py:56-66)
+if size_gb <= 0: return 1.0
+if size_gb >= max_gb: return 0.0
+score = 1.0 - (size_gb / max_gb)
+```
+
+### Scoring examples
+
+**Model size: 0.5 GB**
+
+```json
+{
+  "raspberry_pi": 0.5,  // 1.0 - (0.5/1.0) = 0.5
+  "jetson_nano": 0.75,  // 1.0 - (0.5/2.0) = 0.75
+  "desktop_pc": 0.92,   // 1.0 - (0.5/6.0) = 0.92
+  "aws_server": 0.95    // 1.0 - (0.5/10.0) = 0.95
+}
+```
+
+**Model size: 8 GB**
+
+```json
+{
+  "raspberry_pi": 0.0,   // Too large
+  "jetson_nano": 0.0,    // Too large
+  "desktop_pc": 0.0,     // Too large (8 > 6)
+  "aws_server": 0.2      // 1.0 - (8/10) = 0.2
+}
+```
+
+## Tree score (lineage)
+
+**Evaluates**: Model quality in the context of its ancestry
+
+**Source**: `src/metrics/treescore.py`
+
+### Calculation method
+
+1. Compute the model's own aggregate score
+2. Identify parent models from config metadata
+3. Recursively walk the lineage tree
+4. Combine scores:
+
+```python
+# From src/metrics/treescore.py:266-277
+own = net_score(current_model)
+ancestor_sum, ancestor_count = walk_parents(current_model)
+
+if ancestor_count == 0:
+    score = own
+else:
+    avg_ancestor = ancestor_sum / ancestor_count
+    score = (own + avg_ancestor) / 2.0
+```
+
+### Parent extraction
+
+Parents are identified from `config.json`:
+
+```python
+# From src/metrics/treescore.py:221-232
+candidate_keys = (
+    "base_model",
+    "teacher_model",
+    "parent_model",
+    "source_model",
+    "original_model",
+    "pretrained_model_name_or_path",
+)
+```
+
+### Scoring examples
+
+<Steps>
+  <Step title="Standalone model">
+    - Own score: 0.7
+    - No parents
+    - **Tree score**: 0.7
+  </Step>
+
+  <Step title="Fine-tuned model">
+    - Own score: 0.8
+    - Parent score: 0.9
+    - **Tree score**: (0.8 + 0.9) / 2 = 0.85
+  </Step>
+
+  <Step title="Multi-generation model">
+    - Own score: 0.75
+    - Parent score: 0.85
+    - Grandparent score: 0.9
+    - Average ancestor: (0.85 + 0.9) / 2 = 0.875
+    - **Tree score**: (0.75 + 0.875) / 2 = 0.8125
+  </Step>
+</Steps>
+
+## Category
+
+**Determines**: High-level artifact classification
+
+**Source**: `src/metrics/category.py`
+
+### Calculation method
+
+```python
+# From src/metrics/category.py:38-45
+if "huggingface.co" in url:
+    category = info.pipeline_tag or "Model"
+elif "github.com" in url:
+    category = "Code Repository"
+else:
+    category = "Model"
+```
+
+### Examples
+
+| URL | Pipeline tag | Category |
+|-----|--------------|----------|
+| `huggingface.co/bert-base` | `fill-mask` | `fill-mask` |
+| `huggingface.co/gpt2` | `text-generation` | `text-generation` |
+| `github.com/user/repo` | N/A | `Code Repository` |
+
+## API response format
+
+All metrics are returned in the `/artifact/model/{id}/rate` endpoint:
+
+```json
+{
+  "name": "bert-base-uncased",
+  "category": "model",
+  "net_score": 0.7234,
+  "net_score_latency": 1523,
+  "reproducibility": 0.8,
+  "reproducibility_latency": 45,
+  "reviewedness": 0.89,
+  "reviewedness_latency": 234,
+  "license": 1.0,
+  "license_latency": 12,
+  "code_quality": 0.75,
+  "code_quality_latency": 189,
+  "bus_factor": 0.6,
+  "bus_factor_latency": 456,
+  "ramp_up_time": 0.65,
+  "ramp_up_time_latency": 23,
+  "performance_claims": 1.0,
+  "performance_claims_latency": 78,
+  "dataset_quality": 0.7,
+  "dataset_quality_latency": 123,
+  "dataset_and_code_score": 1.0,
+  "dataset_and_code_score_latency": 34,
+  "tree_score": 0.8125,
+  "tree_score_latency": 567,
+  "size_score": {
+    "raspberry_pi": 0.5,
+    "jetson_nano": 0.75,
+    "desktop_pc": 0.92,
+    "aws_server": 0.95
+  },
+  "size_score_latency": 89
+}
+```
+
+<Note>
+All latency values are measured in **milliseconds**.
+</Note>

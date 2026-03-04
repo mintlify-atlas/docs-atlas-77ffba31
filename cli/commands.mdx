@@ -1,0 +1,344 @@
+---
+title: 'CLI Commands'
+description: 'Complete reference for all CLI commands and options'
+icon: 'terminal'
+---
+
+## Command Overview
+
+The Trustworthy Model Registry CLI provides three primary commands:
+
+```bash
+./run.py <command>
+```
+
+<CardGroup cols={3}>
+  <Card title="install" icon="download">
+    Install project dependencies
+  </Card>
+  <Card title="test" icon="flask">
+    Run the test suite with coverage
+  </Card>
+  <Card title="URL_FILE" icon="file">
+    Process a file of model URLs
+  </Card>
+</CardGroup>
+
+---
+
+## install
+
+Installs all dependencies required to run the CLI tool and evaluate models.
+
+### Syntax
+
+```bash
+./run.py install
+```
+
+### Description
+
+The `install` command reads `requirements.txt` and `requirements-dev.txt` files and installs all listed packages using pip. This ensures your environment has all necessary libraries for:
+
+- Making HTTP requests to model registries
+- Parsing Hugging Face model metadata
+- Cloning and analyzing Git repositories
+- Running tests and coverage analysis
+- Processing model files and documentation
+
+### What Gets Installed
+
+<AccordionGroup>
+  <Accordion title="Core Dependencies (requirements.txt)">
+    - **requests** - HTTP client for API calls
+    - **huggingface_hub** - Hugging Face API integration
+    - **beautifulsoup4** - HTML/XML parsing
+    - **gitpython** - Git repository operations
+    - **fastapi** - API framework (for Phase 2)
+    - **uvicorn** - ASGI server
+    - **boto3** - AWS SDK (for cloud deployment)
+  </Accordion>
+  
+  <Accordion title="Development Dependencies (requirements-dev.txt)">
+    - **pytest** - Testing framework
+    - **coverage** - Code coverage measurement
+    - **pytest-mock** - Mocking support for tests
+    - **requests-mock** - HTTP mocking for tests
+  </Accordion>
+</AccordionGroup>
+
+### Example Output
+
+```bash
+$ ./run.py install
+Collecting requests>=2.0.0
+  Using cached requests-2.31.0-py3-none-any.whl (62 kB)
+Collecting huggingface_hub
+  Downloading huggingface_hub-0.20.3-py3-none-any.whl (330 kB)
+...
+Successfully installed beautifulsoup4-4.12.3 requests-2.31.0 ...
+```
+
+### Return Codes
+
+- `0` - Installation successful
+- `1` - Installation failed (check error output)
+
+---
+
+## test
+
+Runs the project's test suite using pytest and reports code coverage.
+
+### Syntax
+
+```bash
+./run.py test
+```
+
+### Description
+
+Executes all tests in the project and measures line coverage. The command:
+
+1. Runs pytest in quiet mode (`-q`)
+2. Executes pytest under coverage measurement
+3. Generates a coverage report
+4. Outputs a summary in the format: `X/Y test cases passed. Z% line coverage achieved.`
+
+### Example Output
+
+```bash
+$ ./run.py test
+15/15 test cases passed. 87% line coverage achieved.
+```
+
+### How It Works
+
+The test command internally runs:
+
+```bash
+# Run tests
+python -m pytest -q
+
+# Measure coverage
+python -m coverage run -m pytest
+
+# Generate report
+python -m coverage report -m
+```
+
+<Info>
+The test suite validates all metric implementations, URL classification logic, and CLI functionality.
+</Info>
+
+### Return Codes
+
+- `0` - All tests passed
+- `1` - One or more tests failed or pytest/coverage not installed
+
+---
+
+## URL_FILE
+
+Processes a file containing model or dataset URLs and outputs trustworthiness metrics in NDJSON format.
+
+### Syntax
+
+```bash
+./run.py <URL_FILE>
+```
+
+### Parameters
+
+<ParamField path="URL_FILE" type="string" required>
+  Path to a text file containing URLs to evaluate. Each URL should be on a separate line or comma-separated.
+</ParamField>
+
+### Description
+
+This is the primary command for batch model evaluation. For each URL in the file:
+
+1. **Classifies** the resource type (MODEL, DATASET, or CODE)
+2. **Downloads** metadata from the source (Hugging Face, GitHub, etc.)
+3. **Computes** trustworthiness metrics
+4. **Outputs** results as NDJSON (newline-delimited JSON)
+
+### URL Classification Rules
+
+<Steps>
+  <Step title="Hugging Face Datasets">
+    URLs containing `huggingface.co/datasets/` → `DATASET`
+  </Step>
+  <Step title="Hugging Face Models">
+    Other Hugging Face URLs → `MODEL`
+  </Step>
+  <Step title="Git Repositories">
+    GitHub, GitLab, Bitbucket URLs → `CODE`
+  </Step>
+  <Step title="Default">
+    All other URLs → `CODE`
+  </Step>
+</Steps>
+
+### Metrics Computed
+
+For each MODEL resource, the following metrics are evaluated:
+
+<AccordionGroup>
+  <Accordion title="Reproducibility" icon="repeat">
+    Checks for requirements.txt, environment.yml, or pyproject.toml files
+  </Accordion>
+  
+  <Accordion title="License" icon="scale-balanced">
+    Validates presence and clarity of license information
+  </Accordion>
+  
+  <Accordion title="Size Score" icon="hard-drive">
+    Assesses model size suitability for different hardware platforms
+  </Accordion>
+  
+  <Accordion title="Lineage" icon="diagram-project">
+    Tracks model dependencies and dataset sources
+  </Accordion>
+  
+  <Accordion title="Reviewedness" icon="magnifying-glass">
+    Evaluates documentation quality (README, examples, tutorials)
+  </Accordion>
+  
+  <Accordion title="Bus Factor" icon="bus">
+    Analyzes contributor diversity in the repository
+  </Accordion>
+  
+  <Accordion title="Code Quality" icon="code">
+    Checks for CI/CD, tests, and code organization
+  </Accordion>
+</AccordionGroup>
+
+### Output Format
+
+Results are printed as **NDJSON** (one JSON object per line):
+
+```json
+{"name":"facebook/wav2vec2-base","category":"MODEL","reproducibility":0.8,"reproducibility_latency":1234,...,"net_score":0.7456}
+{"name":"openai/whisper-tiny","category":"MODEL","reproducibility":0.9,"reproducibility_latency":987,...,"net_score":0.8123}
+```
+
+<Note>
+Each metric includes both a score (0.0-1.0) and a latency value (milliseconds).
+</Note>
+
+### Example Usage
+
+Create a URL file:
+
+```bash
+cat > urls.txt << EOF
+https://huggingface.co/facebook/wav2vec2-base
+https://huggingface.co/openai/whisper-tiny
+https://huggingface.co/bert-base-uncased
+EOF
+```
+
+Run the evaluation:
+
+```bash
+./run.py urls.txt
+```
+
+Redirect output to a file:
+
+```bash
+./run.py urls.txt > results.ndjson
+```
+
+### Parallel Processing
+
+The CLI uses a ThreadPoolExecutor to process multiple models concurrently:
+
+- **Max workers:** min(8, CPU count)
+- **Timeout per metric:** 90 seconds
+- **Graceful degradation:** Failed metrics return 0.0 instead of crashing
+
+### Error Handling
+
+<ResponseField name="File Not Found">
+  ```
+  Error: URL file not found: urls.txt
+  ```
+  Exit code: 1
+</ResponseField>
+
+<ResponseField name="Empty File">
+  No output, exit code: 0
+</ResponseField>
+
+<ResponseField name="Invalid URL">
+  URL is classified as CODE and processed with limited metrics
+</ResponseField>
+
+### Return Codes
+
+- `0` - Processing completed successfully
+- `1` - URL file not found or other error
+
+---
+
+## Global Options
+
+The CLI does not currently support global flags, but you can control behavior via environment variables:
+
+### Environment Variables
+
+<ParamField path="LOG_FILE" type="string" optional>
+  Path to write log output
+  
+  ```bash
+  LOG_FILE=/tmp/cli.log ./run.py urls.txt
+  ```
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="integer" optional>
+  Set logging verbosity (0=WARNING, 1=INFO, 2=DEBUG)
+  
+  ```bash
+  LOG_LEVEL=2 ./run.py urls.txt
+  ```
+</ParamField>
+
+<ParamField path="HF_HUB_DISABLE_PROGRESS_BARS" type="string" optional>
+  Disable Hugging Face download progress bars (set to "1")
+</ParamField>
+
+<ParamField path="TQDM_DISABLE" type="string" optional>
+  Disable tqdm progress bars (set to "1")
+</ParamField>
+
+---
+
+## Help Command
+
+Display CLI usage information:
+
+```bash
+./run.py
+```
+
+or
+
+```bash
+./run.py --help
+```
+
+### Output
+
+```
+usage: run [-h] [arg]
+
+Phase 1 CLI for trustworthy model reuse
+
+positional arguments:
+  arg         install | test | URL_FILE
+
+optional arguments:
+  -h, --help  show this help message and exit
+```

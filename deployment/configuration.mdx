@@ -1,0 +1,404 @@
+---
+title: Environment Configuration
+description: Complete reference for all environment variables used in the Trustworthy Model Registry
+---
+
+## Overview
+
+The Trustworthy Model Registry uses environment variables for all configuration. This approach ensures:
+- **Security**: Sensitive credentials never appear in code
+- **Flexibility**: Different configurations for development, staging, and production
+- **12-Factor Compliance**: Follows modern application deployment best practices
+
+<Tip>
+Store environment variables in a `.env` file for local development. The application automatically loads `.env` using `python-dotenv`.
+</Tip>
+
+## Required Variables
+
+These variables must be set for the application to function correctly.
+
+### AWS_REGION
+
+<ParamField path="AWS_REGION" type="string" required>
+  AWS region where resources are deployed.
+
+  **Example**: `us-east-2`
+
+  **Used by**:
+  - `src/aws/s3_utils.py` - S3 client initialization
+  - `src/services/storage.py` - Storage service configuration
+
+  **Notes**:
+  - Automatically detected in Lambda runtime
+  - Must be explicitly set for local development
+  - Should match the region of your S3 bucket
+</ParamField>
+
+### S3_BUCKET
+
+<ParamField path="S3_BUCKET" type="string" required>
+  Name of the S3 bucket for artifact storage and registry persistence.
+
+  **Example**: `sot4-model-registry-artifacts`
+
+  **Used by**:
+  - `src/aws/s3_utils.py` - Artifact upload/download operations
+  - `src/services/storage.py` - Storage backend selection
+  - `src/api/routers/models.py` - Registry initialization
+
+  **Storage structure**:
+  ```
+  s3://bucket-name/
+  ├── registry/
+  │   └── registry.json          # Artifact metadata
+  ├── artifacts/
+  │   ├── model/
+  │   │   ├── 1.zip
+  │   │   └── 2.zip
+  │   ├── dataset/
+  │   └── code/
+  ```
+
+  **Notes**:
+  - Must be globally unique across all AWS accounts
+  - Bucket should be in the same region as Lambda function
+  - Required unless `LOCAL_STORAGE=1` is set
+</ParamField>
+
+### AUTH_TOKEN
+
+<ParamField path="AUTH_TOKEN" type="string" required>
+  Default authentication token for API access.
+
+  **Example**: `admin-secret-token-12345`
+
+  **Used by**:
+  - Authentication middleware (if enabled)
+  - Security track features
+
+  **Notes**:
+  - Keep this value secret and secure
+  - Use different tokens for development and production
+  - Rotate periodically for security
+  - Required by OpenAPI specification authentication schema
+</ParamField>
+
+## Optional API Tokens
+
+These tokens improve functionality but are not required for basic operation.
+
+### HUGGINGFACE_HUB_TOKEN
+
+<ParamField path="HUGGINGFACE_HUB_TOKEN" type="string">
+  HuggingFace API token for accessing models and datasets.
+
+  **Example**: `hf_xxxxxxxxxxxxxxxxxxxx`
+
+  **Used by**:
+  - `src/services/scoring.py` - Model metadata fetching
+  - `src/metrics/reproducibility.py` - Model card analysis
+  - `src/metrics/dataset_quality.py` - Dataset validation
+  - `src/metrics/bus_factor.py` - Repository analysis
+
+  **Benefits**:
+  - Higher API rate limits
+  - Access to private models (if permissions granted)
+  - Improved reliability for model ingestion
+
+  **How to obtain**:
+  1. Create a HuggingFace account at https://huggingface.co
+  2. Navigate to Settings > Access Tokens
+  3. Create a new token with `read` permissions
+
+  **Notes**:
+  - Optional but recommended for production use
+  - Without token, API is limited to public models and lower rate limits
+</ParamField>
+
+### GITHUB_TOKEN
+
+<ParamField path="GITHUB_TOKEN" type="string">
+  GitHub personal access token for API access.
+
+  **Example**: `ghp_xxxxxxxxxxxxxxxxxxxx`
+
+  **Used by**:
+  - `src/metrics/reproducibility.py` - Repository metadata fetching
+  - `src/metrics/bus_factor.py` - Contributor analysis
+  - `src/api/routers/models.py` - License information retrieval
+
+  **Benefits**:
+  - Higher GitHub API rate limits (5,000 requests/hour vs 60)
+  - Access to private repositories (if permissions granted)
+  - More reliable lineage and reviewedness metrics
+
+  **How to obtain**:
+  1. Navigate to GitHub Settings > Developer settings > Personal access tokens
+  2. Generate new token with `repo` scope (for public repositories, `public_repo` is sufficient)
+  3. Copy the token immediately (it won't be shown again)
+
+  **Notes**:
+  - Optional but recommended for production use
+  - Without token, GitHub API calls are rate-limited to 60 requests/hour
+</ParamField>
+
+## Logging Configuration
+
+Control logging behavior for debugging and monitoring.
+
+### LOG_LEVEL
+
+<ParamField path="LOG_LEVEL" type="integer" default="0">
+  Controls logging verbosity.
+
+  **Possible values**:
+  - `0` - Silent (no logs emitted)
+  - `1` - INFO level logging
+  - `2` - DEBUG level logging
+
+  **Used by**:
+  - `src/utils/logging.py` - Logger configuration
+
+  **Example**:
+  ```bash
+  LOG_LEVEL=1  # INFO level
+  ```
+
+  **Notes**:
+  - Set to `0` for production (Lambda logs to CloudWatch automatically)
+  - Set to `1` or `2` for local development debugging
+  - Does not affect CloudWatch logging in Lambda deployments
+</ParamField>
+
+### LOG_FILE
+
+<ParamField path="LOG_FILE" type="string">
+  Path to log file for local development.
+
+  **Example**: `/tmp/tmr.log`
+
+  **Used by**:
+  - `src/utils/logging.py` - File handler configuration
+
+  **Notes**:
+  - Only used when `LOG_LEVEL > 0`
+  - If not set or invalid, logs default to stderr
+  - Not used in Lambda deployments (CloudWatch is used instead)
+  - File is created if it doesn't exist
+  - File is overwritten on each application restart
+</ParamField>
+
+## Development Configuration
+
+### LOCAL_STORAGE
+
+<ParamField path="LOCAL_STORAGE" type="string" default="0">
+  Enable local filesystem storage instead of S3.
+
+  **Possible values**:
+  - `0` - Use S3 storage (production mode)
+  - `1` - Use local filesystem (development mode)
+
+  **Used by**:
+  - `src/services/storage.py` - Storage backend selection
+
+  **Local storage location**:
+  - Artifacts stored in `/tmp/local-artifacts/`
+  - Registry stored in local filesystem
+
+  **Example**:
+  ```bash
+  LOCAL_STORAGE=1
+  ```
+
+  **Notes**:
+  - Useful for local development without AWS setup
+  - Presigned URLs return `local://download/...` format
+  - Data is not persistent across system reboots (uses `/tmp`)
+  - Never use in production deployments
+</ParamField>
+
+## Internal Configuration
+
+These variables are set automatically by the application and should not be modified.
+
+### PYTHONPATH
+
+<ParamField path="PYTHONPATH" type="string">
+  Python module search path.
+
+  **Set by**: `src/run.py` during initialization
+
+  **Value**: `<repo-root>:<repo-root>/src`
+
+  **Purpose**:
+  - Ensures metrics and utilities can be imported correctly
+  - Allows CLI and API to share the same codebase
+  - Maintains compatibility across local, CI, and Lambda environments
+
+  **Notes**:
+  - Automatically configured at runtime
+  - No manual configuration needed
+</ParamField>
+
+### HF_HUB_DISABLE_PROGRESS_BARS
+
+<ParamField path="HF_HUB_DISABLE_PROGRESS_BARS" type="string" default="1">
+  Disables HuggingFace Hub progress bars in console output.
+
+  **Set by**: `src/run.py` during initialization
+
+  **Notes**:
+  - Keeps output clean for autograder compatibility
+  - Prevents terminal noise in Lambda logs
+</ParamField>
+
+### TQDM_DISABLE
+
+<ParamField path="TQDM_DISABLE" type="string" default="1">
+  Disables tqdm progress bars in console output.
+
+  **Set by**: `src/run.py` during initialization
+
+  **Notes**:
+  - Prevents progress bar rendering in logs
+  - Improves CloudWatch log readability
+</ParamField>
+
+## Example Configuration Files
+
+### Development Environment
+
+```bash .env
+# AWS Configuration
+AWS_REGION=us-east-2
+S3_BUCKET=my-dev-bucket
+
+# Authentication
+AUTH_TOKEN=dev-token-12345
+
+# API Tokens (optional but recommended)
+HUGGINGFACE_HUB_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+
+# Logging (verbose for debugging)
+LOG_LEVEL=2
+LOG_FILE=/tmp/tmr-dev.log
+
+# Local development mode
+LOCAL_STORAGE=1
+```
+
+### Production Environment (Lambda)
+
+Set via AWS Lambda environment variables:
+
+```bash
+AWS_REGION=us-east-2
+S3_BUCKET=production-tmr-artifacts
+AUTH_TOKEN=<secure-production-token>
+HUGGINGFACE_HUB_TOKEN=<production-hf-token>
+GITHUB_TOKEN=<production-github-token>
+LOG_LEVEL=0
+```
+
+<Warning>
+Never commit `.env` files containing real credentials to version control. Add `.env` to `.gitignore`.
+</Warning>
+
+### Testing Environment
+
+```bash .env.test
+# Minimal configuration for testing
+AWS_REGION=us-east-2
+S3_BUCKET=test-bucket
+AUTH_TOKEN=test-token
+LOCAL_STORAGE=1
+LOG_LEVEL=0
+```
+
+## Configuration Validation
+
+The application validates required configuration on startup:
+
+```python src/services/storage.py
+if not LOCAL_MODE and not BUCKET:
+    raise RuntimeError("S3_BUCKET not set")
+```
+
+```python src/aws/s3_utils.py
+def _bucket() -> str:
+    b = os.getenv("S3_BUCKET")
+    if not b:
+        raise RuntimeError("S3_BUCKET not set")
+    return b
+```
+
+If required variables are missing, the application will fail to start with a clear error message.
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Secrets Manager" icon="lock">
+    For production, store sensitive tokens in AWS Secrets Manager and reference them in Lambda
+  </Card>
+  <Card title="Rotate Tokens" icon="rotate">
+    Regularly rotate `AUTH_TOKEN`, `GITHUB_TOKEN`, and `HUGGINGFACE_HUB_TOKEN`
+  </Card>
+  <Card title="Least Privilege" icon="shield">
+    Use IAM roles with minimal required permissions for Lambda execution
+  </Card>
+  <Card title="Environment Isolation" icon="layer-group">
+    Use separate credentials and buckets for development, staging, and production
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="S3_BUCKET not set error">
+    **Cause**: Missing or incorrect S3 bucket configuration
+
+    **Solution**:
+    ```bash
+    export S3_BUCKET=your-bucket-name
+    ```
+    Or add to `.env` file:
+    ```bash
+    S3_BUCKET=your-bucket-name
+    ```
+  </Accordion>
+
+  <Accordion title="HuggingFace rate limit errors">
+    **Cause**: Too many API requests without authentication token
+
+    **Solution**: Set `HUGGINGFACE_HUB_TOKEN` to increase rate limits from 60 to 5,000 requests/hour
+  </Accordion>
+
+  <Accordion title="GitHub API rate limit errors">
+    **Cause**: Exceeded 60 requests/hour limit for unauthenticated requests
+
+    **Solution**: Set `GITHUB_TOKEN` to increase limit to 5,000 requests/hour
+  </Accordion>
+
+  <Accordion title=".env file not loaded">
+    **Cause**: `.env` file not in the correct location or not readable
+
+    **Solution**:
+    - Place `.env` in project root directory
+    - Ensure file is readable: `chmod 644 .env`
+    - Verify file is loaded: Check `src/main.py` calls `load_dotenv()`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Setup" icon="laptop" href="/deployment/local-setup">
+    Set up your local development environment
+  </Card>
+  <Card title="AWS Deployment" icon="aws" href="/deployment/aws-deployment">
+    Deploy to production on AWS Lambda
+  </Card>
+</CardGroup>

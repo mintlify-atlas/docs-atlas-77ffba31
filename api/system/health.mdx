@@ -1,0 +1,55 @@
+---
+title: 'Health Check'
+api: 'GET /health'
+---
+
+Returns the current health status of the Model Registry system, including uptime and activity metrics.
+
+## Endpoint
+
+```
+GET /health
+```
+
+## Description
+
+The health endpoint provides a quick way to verify that the Model Registry API is running and responsive. It returns system uptime information and the current count of registered models, making it useful for monitoring and health checks.
+
+## Response Format
+
+The endpoint returns a JSON object with the following fields:
+
+- `status` (string): System status indicator, returns "ok" when the service is healthy
+- `uptime_s` (integer): Number of seconds the service has been running since last restart
+- `models` (integer): Total count of models currently registered in the system
+
+## Response Example
+
+```json
+{
+  "status": "ok",
+  "uptime_s": 3600,
+  "models": 42
+}
+```
+
+## Use Cases
+
+### System Monitoring
+Use this endpoint for health checks in monitoring systems, load balancers, or orchestration platforms like Kubernetes.
+
+### Activity Tracking
+The `models` field provides insight into recent system activity and the number of artifacts currently in the registry.
+
+### Uptime Information
+Track service uptime to monitor stability and identify when the service was last restarted.
+
+## cURL Example
+
+```bash
+curl -X GET http://localhost:8080/health
+```
+
+## Status Codes
+
+- `200 OK`: Service is healthy and responsive

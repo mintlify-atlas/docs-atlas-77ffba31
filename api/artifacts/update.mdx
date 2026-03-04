@@ -1,0 +1,280 @@
+---
+title: "Update Artifact"
+api: "PUT /artifacts/{artifact_type}/{id}"
+description: "Update artifact source URL and metadata"
+---
+
+## Endpoint
+
+```
+PUT /artifacts/{artifact_type}/{id}
+```
+
+## Parameters
+
+<ParamField path="artifact_type" type="string" required>
+  Type of artifact to update:
+  - `model` - Machine learning model
+  - `dataset` - Training or evaluation dataset
+  - `code` - Code repository or script
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Unique identifier of the artifact to update. Must match the ID in the request body.
+</ParamField>
+
+## Authentication
+
+Authentication headers may be required depending on deployment configuration.
+
+## Request Body
+
+The request body must contain the complete artifact structure with updated values.
+
+<ParamField body="metadata" type="object" required>
+  Artifact metadata
+  
+  <ParamField body="metadata.name" type="string" required>
+    Name of the artifact
+  </ParamField>
+  
+  <ParamField body="metadata.id" type="string" required>
+    Unique identifier - **must match the path parameter `{id}`**
+  </ParamField>
+  
+  <ParamField body="metadata.type" type="string" required>
+    Artifact type: `model`, `dataset`, or `code`
+  </ParamField>
+</ParamField>
+
+<ParamField body="data" type="object" required>
+  Artifact data fields to update
+  
+  <ParamField body="data.url" type="string" required>
+    New source URL for the artifact
+  </ParamField>
+  
+  <ParamField body="data.download_url" type="string">
+    Optional new pre-signed download URL
+  </ParamField>
+</ParamField>
+
+## What Gets Updated
+
+The update endpoint modifies:
+
+- **`source_uri`** - The source URL of the artifact (from `data.url`)
+- **`metadata.source_uri`** - Same URL stored in metadata
+- **`metadata.download_url`** - Pre-signed download URL (if provided)
+
+## What Does NOT Get Updated
+
+<Warning>
+  The following fields are **NOT** updated by this endpoint:
+  
+  - Artifact **name** (immutable after creation)
+  - Artifact **ID** (immutable)
+  - Artifact **type** (immutable)
+  - Computed **metrics** (reviewedness, net_score, etc.)
+  - **Lineage** information
+  - **Tags** or **version**
+</Warning>
+
+If you need to update metrics or lineage, you must delete and recreate the artifact.
+
+## Response
+
+Returns the updated artifact with the same structure as the create/retrieve endpoints.
+
+<ResponseField name="metadata" type="object" required>
+  Artifact metadata
+  
+  <ResponseField name="metadata.name" type="string">
+    Name of the artifact (unchanged)
+  </ResponseField>
+  
+  <ResponseField name="metadata.id" type="string">
+    Unique identifier (unchanged)
+  </ResponseField>
+  
+  <ResponseField name="metadata.type" type="string">
+    Artifact type (unchanged)
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  Updated artifact data
+  
+  <ResponseField name="data.url" type="string">
+    Updated source URL
+  </ResponseField>
+  
+  <ResponseField name="data.download_url" type="string">
+    Updated download URL (if provided)
+  </ResponseField>
+</ResponseField>
+
+## Error Codes
+
+- `400` - ID mismatch between path and request body
+- `404` - Artifact not found
+- `500` - Internal server error
+
+## ID Validation
+
+The endpoint validates that the `id` in the URL path matches the `metadata.id` in the request body:
+
+```python
+if body.metadata.id != id:
+    raise HTTPException(
+        status_code=400, 
+        detail="Name/id mismatch in artifact update."
+    )
+```
+
+<Note>
+  Despite the error message saying "Name/id mismatch", the validation only checks **ID** equality, not name.
+</Note>
+
+## Examples
+
+<CodeGroup>
+
+```bash Update Model URL
+curl -X PUT https://api.example.com/artifacts/model/12345 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metadata": {
+      "name": "BERT Base Uncased",
+      "id": "12345",
+      "type": "model"
+    },
+    "data": {
+      "url": "https://huggingface.co/google-bert/bert-base-uncased-v2"
+    }
+  }'
+```
+
+```bash Update with Download URL
+curl -X PUT https://api.example.com/artifacts/dataset/67890 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metadata": {
+      "name": "SQuAD Dataset",
+      "id": "67890",
+      "type": "dataset"
+    },
+    "data": {
+      "url": "https://huggingface.co/datasets/squad-v2",
+      "download_url": "https://s3.amazonaws.com/bucket/squad-v2.zip"
+    }
+  }'
+```
+
+```bash Invalid ID Mismatch (Error)
+curl -X PUT https://api.example.com/artifacts/model/12345 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metadata": {
+      "name": "BERT",
+      "id": "99999",
+      "type": "model"
+    },
+    "data": {
+      "url": "https://huggingface.co/bert-base"
+    }
+  }'
+
+# Returns 400: Name/id mismatch in artifact update.
+```
+
+</CodeGroup>
+
+## Response Example
+
+```json
+{
+  "metadata": {
+    "name": "BERT Base Uncased",
+    "id": "12345",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased-v2",
+    "download_url": "https://s3.amazonaws.com/bucket/artifacts/model/12345.zip?signature=..."
+  }
+}
+```
+
+## Use Cases
+
+### Update Model Version URL
+
+When a new version of a model is released, update the source URL to point to the new version:
+
+```json
+{
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-large-uncased"
+  }
+}
+```
+
+### Refresh Download URL
+
+Pre-signed URLs expire. Update the download URL with a fresh signature:
+
+```json
+{
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/bucket/model.zip?signature=NEW_SIG"
+  }
+}
+```
+
+### Change Artifact Location
+
+Move an artifact to a new storage location:
+
+```json
+{
+  "data": {
+    "url": "https://new-storage.example.com/datasets/squad",
+    "download_url": "https://new-storage.example.com/downloads/squad.zip"
+  }
+}
+```
+
+## Implementation Notes
+
+The update logic is implemented in `/home/daytona/workspace/source/src/api/routers/models.py:1152`:
+
+```python
+@router.put("/artifacts/{artifact_type}/{id}", response_model=Artifact)
+def artifact_update(artifact_type: str, id: str, body: Artifact):
+    # Validate ID match
+    if body.metadata.id != id:
+        raise HTTPException(status_code=400, ...)
+    
+    # Fetch existing artifact
+    item = _registry.get(id)
+    if not item:
+        raise HTTPException(status_code=404, ...)
+    
+    # Update URLs
+    item["source_uri"] = body.data.url
+    meta = item.setdefault("metadata", {})
+    meta["source_uri"] = body.data.url
+    
+    if body.data.download_url is not None:
+        meta["download_url"] = body.data.download_url
+    
+    return Artifact(...)
+```
+
+## See Also
+
+- [Create Artifact](/api/artifacts/create) - Register new artifacts
+- [Retrieve Artifact](/api/artifacts/retrieve) - Get artifact details
+- [Delete Artifact](/api/artifacts/delete) - Remove artifacts

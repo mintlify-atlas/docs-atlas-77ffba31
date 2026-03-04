@@ -1,80 +1,325 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with the Trustworthy Model Registry in minutes
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
+The Trustworthy Model Registry (TMR) is a cloud-native system for ingesting, evaluating, storing, and serving machine learning artifacts with explicit, machine-verifiable trust signals. This guide will help you get up and running quickly.
 
-### Step 1: Set up your local environment
+<Info>
+The API is live at: https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/docs
+</Info>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Installation
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Clone the repository">
+    First, clone the repository to your local machine:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
+    ```bash
+    git clone <repository-url>
+    cd trustworthy-model-registry
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    The project requires Python 3.12. Install all dependencies using the provided script:
+
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ./run install
+    ```
+
+    This installs all required packages from `requirements.txt`:
+
+    <CodeGroup>
+    ```txt requirements.txt
+    requests>=2.0.0
+    huggingface_hub
+    beautifulsoup4
+    gitpython
+    pytest
+    coverage
+    fastapi>=0.115
+    uvicorn>=0.30
+    pydantic>=2.8
+    mangum>=0.17
+    boto3>=1.34
+    python-multipart>=0.0.9
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Set up the required environment variables for AWS and authentication:
+
+    ```bash
+    export AWS_REGION=us-east-2
+    export S3_BUCKET=<your-s3-bucket>
+    export AUTH_TOKEN=<default-admin-token>
+    export HUGGINGFACE_HUB_TOKEN=<optional-hf-token>
+    export GITHUB_TOKEN=<optional-github-token>
+    ```
+
+    <Note>
+    For local development, you can set `LOCAL_STORAGE=1` to use filesystem storage instead of S3.
+    </Note>
+  </Step>
+
+  <Step title="Start the server">
+    Launch the FastAPI server locally:
+
+    ```bash
+    uvicorn src.run:app --reload
+    ```
+
+    The API will be available at:
+    - **API**: http://localhost:8000
+    - **Swagger UI**: http://localhost:8000/docs
+  </Step>
+</Steps>
+
+## Your first API call
+
+Now that the server is running, let's make your first API call to check system health and ingest a model.
+
+### Check system health
+
+Verify the API is running correctly:
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+<Accordion title="Expected response">
+```json
+{
+  "status": "ok",
+  "uptime_s": 42,
+  "models": 0
+}
+```
 </Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+### Ingest a HuggingFace model
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Ingest a model from HuggingFace. The system will automatically compute trust metrics:
 
-### Step 3: Go live
+```bash
+curl -X POST "http://localhost:8000/api/artifact/model" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "name": "bert-base-uncased"
+  }'
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
+<Accordion title="Expected response">
+```json
+{
+  "metadata": {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/..."
+  }
+}
+```
+</Accordion>
+
+<Warning>
+Models are only ingested if they pass the reviewedness threshold (≥ 0.5). Models with low review coverage will be rejected with a 424 status code.
+</Warning>
+
+### Get model ratings
+
+Retrieve the computed trust metrics for an ingested model:
+
+```bash
+curl http://localhost:8000/api/artifact/model/1/rate
+```
+
+<Accordion title="Expected response">
+```json
+{
+  "name": "bert-base-uncased",
+  "category": "model",
+  "net_score": 0.7234,
+  "net_score_latency": 1523.45,
+  "ramp_up_time": 0.8,
+  "ramp_up_time_latency": 234.12,
+  "bus_factor": 0.9,
+  "bus_factor_latency": 156.78,
+  "performance_claims": 0.6,
+  "performance_claims_latency": 89.23,
+  "license": 1.0,
+  "license_latency": 45.67,
+  "dataset_and_code_score": 0.75,
+  "dataset_and_code_score_latency": 312.45,
+  "dataset_quality": 0.8,
+  "dataset_quality_latency": 198.34,
+  "code_quality": 0.85,
+  "code_quality_latency": 423.56,
+  "reproducibility": 0.9,
+  "reproducibility_latency": 67.89,
+  "reviewedness": 0.75,
+  "reviewedness_latency": 289.12,
+  "tree_score": 0.5,
+  "tree_score_latency": 134.67,
+  "size_score": {
+    "raspberry_pi": 0.2,
+    "jetson_nano": 0.4,
+    "desktop_pc": 0.8,
+    "aws_server": 1.0
+  },
+  "size_score_latency": 23.45
+}
+```
+</Accordion>
+
+### Retrieve an artifact
+
+Get details about a specific artifact:
+
+```bash
+curl http://localhost:8000/api/artifacts/model/1
+```
+
+<Accordion title="Expected response">
+```json
+{
+  "metadata": {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  },
+  "data": {
+    "url": "https://huggingface.co/google-bert/bert-base-uncased",
+    "download_url": "https://s3.amazonaws.com/..."
+  }
+}
+```
+</Accordion>
+
+### List all artifacts
+
+Enumerate all artifacts in the registry:
+
+```bash
+curl -X POST "http://localhost:8000/api/artifacts" \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "name": "*",
+    "types": ["model"]
+  }]'
+```
+
+<Accordion title="Expected response">
+```json
+[
+  {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  },
+  {
+    "name": "gpt2-small",
+    "id": "2",
+    "type": "model"
+  }
+]
+```
 </Accordion>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Learn about the system architecture and components
+  </Card>
+  <Card title="API Reference" icon="code" href="https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/docs">
+    Explore the full OpenAPI specification
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common operations
+
+<Accordion title="Delete an artifact">
+```bash
+curl -X DELETE http://localhost:8000/api/artifacts/model/1
+```
+
+Expected response:
+```json
+{
+  "status": "deleted",
+  "id": "1"
+}
+```
+</Accordion>
+
+<Accordion title="Search artifacts by regex">
+```bash
+curl -X POST "http://localhost:8000/api/artifact/byRegEx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "bert.*"
+  }'
+```
+
+Returns all artifacts matching the pattern in their name or model card.
+</Accordion>
+
+<Accordion title="Check license compatibility">
+```bash
+curl -X POST "http://localhost:8000/api/artifact/model/1/license-check" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "github_url": "https://github.com/huggingface/transformers"
+  }'
+```
+
+Returns `true` or `false` based on license compatibility.
+</Accordion>
+
+<Accordion title="Get model lineage">
+```bash
+curl http://localhost:8000/api/artifact/model/1/lineage
+```
+
+Returns a graph of parent models and dependencies:
+```json
+{
+  "nodes": [
+    {
+      "artifact_id": "1",
+      "name": "bert-fine-tuned",
+      "source": "config_json",
+      "metadata": {}
+    },
+    {
+      "artifact_id": "external:bert-base-uncased",
+      "name": "bert-base-uncased",
+      "source": "config_json",
+      "metadata": {"external": true}
+    }
+  ],
+  "edges": [
+    {
+      "from_node_artifact_id": "external:bert-base-uncased",
+      "to_node_artifact_id": "1",
+      "relationship": "base_model"
+    }
+  ]
+}
+```
+</Accordion>
+
+<Tip>
+Use the `/docs` endpoint to explore the interactive Swagger UI and test all API endpoints directly in your browser.
+</Tip>

@@ -1,0 +1,337 @@
+---
+title: Testing
+description: Learn how to run and write tests for the Trustworthy Model Registry
+---
+
+## Overview
+
+The Trustworthy Model Registry uses **pytest** as its testing framework with comprehensive unit and integration test coverage. Tests are organized to validate component-level logic, end-to-end API behavior, and full system workflows.
+
+## Test Structure
+
+Tests are organized in the `tests/` directory with the following structure:
+
+```
+tests/
+├── unit/              # Component-level tests
+│   ├── test_bus_factor.py
+│   ├── test_license_heuristic.py
+│   ├── test_repo_cloner.py
+│   ├── test_code_quality.py
+│   ├── test_dataset_quality.py
+│   └── ...
+└── integration/       # End-to-end integration tests
+    └── test_prepare_resource.py
+```
+
+### Unit Tests
+
+Unit tests validate individual components in isolation. They are located in `tests/unit/` and follow the naming convention `test_*.py`.
+
+**Example from `tests/unit/test_bus_factor.py`:**
+
+```python
+import pytest
+from unittest.mock import patch, MagicMock
+
+from src.metrics.bus_factor import compute_bus_factor_from_commits, metric
+
+def test_compute_bus_factor_single_contributor_zero():
+    """
+    A commit history with only one contributor should yield 0.0
+    from compute_bus_factor_from_commits.
+    """
+    commits = ["alice"] * 20
+    score = compute_bus_factor_from_commits(commits)
+    assert score == 0.0
+
+def test_compute_bus_factor_multiple_equal_contributors_near_one():
+    """
+    Evenly distributed contributions among several authors should give
+    a bus factor close to 1.0.
+    """
+    commits = (["alice"] * 10 +
+               ["bob"] * 10 +
+               ["carol"] * 10 +
+               ["dave"] * 10)
+    score = compute_bus_factor_from_commits(commits)
+    assert pytest.approx(score, rel=1e-3) == 1.0
+```
+
+### Integration Tests
+
+Integration tests validate end-to-end workflows and API behavior. They are located in `tests/integration/`.
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+pytest
+```
+
+The `pytest.ini` configuration automatically sets the Python path to include `src/`:
+
+```ini
+[pytest]
+pythonpath = src
+```
+
+### Run Specific Test Files
+
+```bash
+# Run a specific test file
+pytest tests/unit/test_bus_factor.py
+
+# Run a specific test function
+pytest tests/unit/test_bus_factor.py::test_compute_bus_factor_single_contributor_zero
+```
+
+### Run Tests by Category
+
+```bash
+# Run only unit tests
+pytest tests/unit/
+
+# Run only integration tests
+pytest tests/integration/
+```
+
+### Quiet Mode
+
+```bash
+# Run tests with minimal output
+pytest -q
+```
+
+## Coverage Reports
+
+The project uses `pytest-cov` for code coverage analysis.
+
+### Generate Coverage Report
+
+```bash
+# Run tests with coverage
+pytest --cov=src --cov-report=html
+
+# View coverage in terminal
+pytest --cov=src --cov-report=term
+
+# Generate XML report (for CI)
+pytest --cov=src --cov-report=xml
+```
+
+### View HTML Coverage Report
+
+After generating the HTML report:
+
+```bash
+open htmlcov/index.html
+```
+
+Coverage artifacts are ignored in `.gitignore`:
+
+```
+.coverage*
+coverage.xml
+htmlcov/
+```
+
+## Test Files Location and Naming Conventions
+
+### File Naming
+
+- Test files must start with `test_` prefix: `test_*.py`
+- Test functions must start with `test_` prefix: `def test_*()`
+- Use descriptive names that explain what is being tested
+
+**Examples:**
+- `test_bus_factor.py` - Tests for bus factor metric
+- `test_license_heuristic.py` - Tests for license scoring
+- `test_repo_cloner.py` - Tests for repository cloning utility
+
+### File Organization
+
+- **Unit tests**: Mirror the `src/` structure in `tests/unit/`
+  - `src/metrics/bus_factor.py` → `tests/unit/test_bus_factor.py`
+  - `src/utils/repo_cloner.py` → `tests/unit/test_repo_cloner.py`
+
+- **Integration tests**: Group by workflow or feature in `tests/integration/`
+
+## Mock Usage and Fixtures
+
+### Using pytest-mock
+
+The project uses `pytest-mock` (a wrapper around `unittest.mock`) for mocking external dependencies.
+
+**Example from `tests/unit/test_bus_factor.py`:**
+
+```python
+from unittest.mock import patch, MagicMock
+
+@patch("src.metrics.bus_factor.requests.get")
+def test_metric_uses_github_contributors_count(mock_get):
+    """
+    metric() should call the GitHub contributors API and map
+    the number of contributors to min(1.0, n/10).
+    """
+    # Fake GitHub API response with 5 contributors
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = [
+        {"login": "alice"},
+        {"login": "bob"},
+        {"login": "carol"},
+        {"login": "dave"},
+        {"login": "eve"},
+    ]
+    mock_get.return_value = fake_resp
+
+    resource = {
+        "github_url": "https://github.com/owner/repo",
+        "url": "https://github.com/owner/repo",
+        "name": "owner/repo",
+    }
+
+    score, latency = metric(resource)
+    # 5 contributors → 0.5
+    assert pytest.approx(score, rel=1e-6) == 0.5
+    assert isinstance(latency, int) and latency >= 0
+```
+
+### Using the mocker Fixture
+
+**Example from `tests/unit/test_repo_cloner.py`:**
+
+```python
+from git import GitCommandError
+
+def test_clone_repo_failure(mocker):
+    """
+    Tests that clone_repo_to_temp returns None when GitPython fails.
+    """
+    # Mock the Repo.clone_from function to raise a GitCommandError
+    mocker.patch('git.Repo.clone_from', side_effect=GitCommandError("clone", "failed"))
+    
+    # Also mock shutil.rmtree to prevent it from trying to delete a real directory
+    mock_rmtree = mocker.patch('shutil.rmtree')
+
+    # Call the function with a fake URL
+    result = clone_repo_to_temp("https://invalid/repo.git")
+
+    # Assert that the function returned None as expected
+    assert result is None
+    # Assert that the cleanup function (shutil.rmtree) was called
+    mock_rmtree.assert_called_once()
+```
+
+### Mocking External APIs
+
+The project uses `requests-mock` for mocking HTTP requests:
+
+**Example from `tests/unit/test_license_heuristic.py`:**
+
+```python
+from unittest.mock import patch
+
+class DummyInfo:
+    def __init__(self, license_str=None, card_dict=None):
+        self.license = license_str
+        self.cardData = card_dict
+
+@patch("src.metrics.license._get_model_info")
+def test_metric_uses_model_license(mock_info):
+    mock_info.return_value = DummyInfo(license_str="mit")
+    score, _ = metric({"name": "owner/model"})
+    assert 0.9 <= score <= 1.0
+```
+
+## Test Dependencies
+
+Test dependencies are defined in `requirements-dev.txt`:
+
+```
+pytest
+pytest-mock
+pytest-cov
+coverage
+requests-mock
+```
+
+These are also included in the main `requirements.txt` for CI/CD compatibility.
+
+## Writing New Tests
+
+### Best Practices
+
+1. **Isolation**: Mock external dependencies (GitHub API, Hugging Face API, file system)
+2. **Deterministic**: Tests should produce the same results every time
+3. **Fast**: Avoid network calls and heavy I/O operations
+4. **Descriptive**: Use clear test names and docstrings
+5. **Assertions**: Use `pytest.approx()` for floating-point comparisons
+
+### Example Test Template
+
+```python
+import pytest
+from unittest.mock import patch, MagicMock
+
+from src.your_module import your_function
+
+def test_your_function_basic_case():
+    """
+    Tests that your_function returns expected output for basic input.
+    """
+    result = your_function("input")
+    assert result == "expected_output"
+
+@patch("src.your_module.external_dependency")
+def test_your_function_with_mock(mock_dependency):
+    """
+    Tests your_function behavior when external dependency is mocked.
+    """
+    mock_dependency.return_value = "mocked_value"
+    result = your_function("input")
+    assert result == "expected_output_with_mock"
+    mock_dependency.assert_called_once_with("expected_arg")
+
+def test_your_function_edge_case():
+    """
+    Tests your_function handles edge cases correctly.
+    """
+    with pytest.raises(ValueError):
+        your_function(None)
+```
+
+## Continuous Integration
+
+Tests are automatically run in CI on every pull request. See the [CI/CD documentation](/development/ci-cd) for more details.
+
+## Troubleshooting
+
+### Import Errors
+
+If you encounter import errors, ensure `PYTHONPATH` includes the `src/` directory:
+
+```bash
+PYTHONPATH=. pytest
+```
+
+Or use the pytest configuration in `pytest.ini`:
+
+```ini
+[pytest]
+pythonpath = src
+```
+
+### Test Discovery Issues
+
+- Ensure test files start with `test_`
+- Ensure test functions start with `test_`
+- Check that `__init__.py` files exist if needed
+
+### Mock Not Working
+
+- Verify the patch path matches the import location in the tested module
+- Use `mocker` fixture instead of `@patch` decorator when possible
+- Check that mocks are set up before calling the tested function

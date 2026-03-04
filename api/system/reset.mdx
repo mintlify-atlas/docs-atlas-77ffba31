@@ -1,0 +1,79 @@
+---
+title: 'Reset Registry'
+api: 'DELETE /reset'
+---
+
+Resets the Model Registry to its default state by clearing all registered artifacts and metrics.
+
+## Endpoint
+
+```
+DELETE /reset
+```
+
+## Description
+
+The reset endpoint clears all data from the Model Registry, including all registered models, datasets, and code artifacts. This operation restores the system to its initial clean state.
+
+<Warning>
+  This operation is destructive and cannot be undone. All registered artifacts, their metadata, metrics, and lineage information will be permanently deleted.
+</Warning>
+
+## Response Format
+
+The endpoint returns a JSON object confirming the reset operation:
+
+- `status` (string): Confirmation message indicating the registry has been reset
+
+## Response Example
+
+```json
+{
+  "status": "registry reset"
+}
+```
+
+## Use Cases
+
+### Testing and Development
+Reset the registry between test runs to ensure a clean state for each test suite.
+
+### Demo Environments
+Restore the system to a clean state before demonstrations or after experimentation.
+
+### Development Workflows
+Clear test data during development to start fresh without restarting the entire service.
+
+## Important Considerations
+
+<Warning>
+  **Data Loss Warning**
+  
+  This operation will:
+  - Delete all registered models, datasets, and code artifacts
+  - Remove all computed metrics and ratings
+  - Clear lineage graph information
+  - Reset the artifact counter to its initial state
+  
+  This action cannot be reversed. Ensure you have backups if you need to preserve any data.
+</Warning>
+
+## cURL Example
+
+```bash
+curl -X DELETE http://localhost:8080/reset
+```
+
+## Status Codes
+
+- `200 OK`: Registry was successfully reset
+
+## Implementation Details
+
+The reset operation performs the following actions:
+
+1. Clears all artifacts from the registry storage
+2. Resets the scoring service cache (failures are logged but do not prevent the reset)
+3. Returns immediately with a success confirmation
+
+The operation is designed to be fault-tolerant - if the scoring service reset fails, the registry reset will still complete successfully.

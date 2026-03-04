@@ -1,0 +1,169 @@
+---
+title: "Search by Regex"
+description: "Search artifacts using regular expression pattern matching"
+---
+
+## Overview
+
+The Search by Regex endpoint allows you to find artifacts by matching a regular expression pattern against artifact names and model card content. This provides powerful search capabilities for discovering related artifacts.
+
+## Endpoint
+
+```
+POST /artifact/byRegEx
+```
+
+## Request Body
+
+<ParamField body="regex" type="string" required>
+  Regular expression pattern to search for. The pattern is compiled with multiline flags and matched against:
+  - Artifact name
+  - Model card text
+  - Card metadata
+</ParamField>
+
+## Response
+
+Returns an array of artifact metadata objects matching the pattern, sorted by artifact ID.
+
+<ResponseField name="artifacts" type="array">
+  <Expandable title="ArtifactMetadata">
+    <ResponseField name="name" type="string">
+      Name of the artifact
+    </ResponseField>
+    
+    <ResponseField name="id" type="string">
+      Unique identifier for the artifact
+    </ResponseField>
+    
+    <ResponseField name="type" type="string">
+      Artifact type: `"model"`, `"dataset"`, or `"code"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Search Behavior
+
+The regex pattern is matched against a combined text blob for each artifact containing:
+
+1. **Artifact name** - The registered name of the artifact
+2. **Model card** - The card field from metadata
+3. **Card text** - Additional card text content
+
+All three fields are concatenated with newlines and searched together, allowing you to match on any descriptive content.
+
+## Regular Expression Syntax
+
+The endpoint supports standard Python regex syntax:
+
+- `.` - Match any character
+- `*` - Zero or more repetitions
+- `+` - One or more repetitions
+- `^` - Start of line
+- `$` - End of line
+- `[abc]` - Character class
+- `(pattern)` - Grouping
+- `|` - Alternation
+
+The pattern is compiled with `re.MULTILINE` flag enabled.
+
+## Error Handling
+
+<ResponseField name="400" type="error">
+  Invalid regular expression syntax
+</ResponseField>
+
+<ResponseField name="404" type="error">
+  No artifacts match the provided regex pattern
+</ResponseField>
+
+## Examples
+
+### Search by Name Prefix
+
+```bash
+curl -X POST https://api.example.com/artifact/byRegEx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "^bert-"
+  }'
+```
+
+Matches artifacts whose names start with "bert-".
+
+### Search for Language Models
+
+```bash
+curl -X POST https://api.example.com/artifact/byRegEx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "language model|LLM|GPT"
+  }'
+```
+
+Matches artifacts containing "language model", "LLM", or "GPT" in name or card.
+
+### Case-Insensitive Search
+
+```bash
+curl -X POST https://api.example.com/artifact/byRegEx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "(?i)classification"
+  }'
+```
+
+Matches "classification", "Classification", "CLASSIFICATION", etc.
+
+### Search for Specific Versions
+
+```bash
+curl -X POST https://api.example.com/artifact/byRegEx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "v[0-9]+\\.[0-9]+"
+  }'
+```
+
+Matches artifacts with version patterns like "v1.0", "v2.3".
+
+### Search Model Card Content
+
+```bash
+curl -X POST https://api.example.com/artifact/byRegEx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "regex": "trained.*ImageNet"
+  }'
+```
+
+Matches artifacts whose model cards mention training on ImageNet.
+
+### Response Example
+
+```json
+[
+  {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  },
+  {
+    "name": "bert-large-cased",
+    "id": "5",
+    "type": "model"
+  },
+  {
+    "name": "bert-multilingual",
+    "id": "12",
+    "type": "model"
+  }
+]
+```
+
+## Tips
+
+- Escape special regex characters in your patterns (e.g., use `\\.` to match a literal period)
+- Use anchors (`^` and `$`) to match at specific positions
+- The search is performed on the server, so complex patterns are fully supported
+- Results are always sorted by artifact ID for consistency

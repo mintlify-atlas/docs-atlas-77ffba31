@@ -1,0 +1,457 @@
+---
+title: CI/CD
+description: Continuous Integration and Continuous Deployment workflows for the Trustworthy Model Registry
+---
+
+## Overview
+
+The Trustworthy Model Registry uses **GitHub Actions** for automated CI/CD workflows. The system includes continuous integration for pull requests, continuous deployment to AWS on merges to main, and automated dependency management.
+
+## Architecture
+
+The CI/CD pipeline consists of four main workflows:
+
+1. **CI** - Automated testing and linting on pull requests
+2. **Backend CD** - Deploy FastAPI backend to AWS Lambda
+3. **Frontend CD** - Deploy static frontend to S3
+4. **Dependabot** - Automated dependency updates
+
+```
+Pull Request → CI Workflow (test, lint)
+                    ↓
+              Merge to main
+                    ↓
+        ┌───────────┴───────────┐
+        ↓                       ↓
+   Backend Deploy          Frontend Deploy
+   (Lambda)                (S3)
+```
+
+## Continuous Integration (CI)
+
+### Workflow: `.github/workflows/ci.yml`
+
+The CI workflow runs automatically on every pull request targeting the `main` branch.
+
+**Workflow configuration:**
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: PYTHONPATH=. pytest -q
+
+      - name: Optional lint
+        run: |
+          pip install flake8
+          flake8 --max-line-length=120 || true
+```
+
+### CI Steps
+
+1. **Checkout** - Retrieves the code from the pull request
+2. **Setup Python 3.11** - Installs Python runtime
+3. **Install dependencies** - Installs all required packages from `requirements.txt`
+4. **Run tests** - Executes the full pytest test suite with `PYTHONPATH=.` for correct imports
+5. **Optional lint** - Runs flake8 linting (non-blocking)
+
+### Pull Request Checks
+
+The CI workflow must pass before a pull request can be merged. It validates:
+
+- All tests pass successfully
+- No import errors or syntax issues
+- Code follows basic style guidelines (optional linting)
+
+### Test Execution
+
+Tests are run with minimal output using the `-q` (quiet) flag:
+
+```bash
+PYTHONPATH=. pytest -q
+```
+
+The `PYTHONPATH=.` ensures imports from `src/` work correctly during test execution.
+
+### Coverage Thresholds
+
+While coverage reports can be generated locally using `pytest-cov`, the CI workflow currently runs tests without explicit coverage enforcement. To add coverage reporting to CI:
+
+```yaml
+- name: Run tests with coverage
+  run: |
+    PYTHONPATH=. pytest --cov=src --cov-report=xml --cov-report=term
+
+- name: Upload coverage to Codecov
+  uses: codecov/codecov-action@v3
+  with:
+    file: ./coverage.xml
+```
+
+## Continuous Deployment (CD)
+
+### Backend Deployment to AWS Lambda
+
+**Workflow: `.github/workflows/lambda_deploy.yml`**
+
+Automatically deploys the FastAPI backend to AWS Lambda when backend source files or dependencies change on the main branch.
+
+**Triggers:**
+- Pushes to `main` affecting:
+  - `src/**`
+  - `requirements.txt`
+  - `.github/workflows/lambda_deploy.yml`
+- Manual execution via `workflow_dispatch`
+
+**Deployment steps:**
+
+```yaml
+name: CD - Deploy API to Lambda
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "requirements.txt"
+      - ".github/workflows/lambda_deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies into build directory
+        run: |
+          mkdir -p build
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -t build
+
+      - name: Copy application code into build directory
+        run: |
+          cp -r src build/
+
+      - name: Create Lambda deployment package
+        run: |
+          cd build
+          zip -r ../app.zip .
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://app.zip
+```
+
+**Key features:**
+
+1. **OIDC Authentication** - Uses GitHub Actions OIDC to securely assume an AWS IAM role (no long-lived credentials)
+2. **Lambda-compatible Build** - Installs dependencies into a build directory compatible with Lambda's Python runtime
+3. **ZIP Packaging** - Packages application code and dependencies into a ZIP archive
+4. **In-place Update** - Updates the deployed Lambda function without recreating infrastructure
+
+**Required secrets:**
+- `AWS_ROLE_ARN` - IAM role ARN for OIDC authentication
+- `LAMBDA_FUNCTION_NAME` - Name of the Lambda function to update
+
+### Frontend Deployment to S3
+
+**Workflow: `.github/workflows/frontend_deploy.yml`**
+
+Automatically deploys static frontend assets to the S3 hosting bucket when frontend files change.
+
+**Triggers:**
+- Pushes to `main` affecting:
+  - `index.html`
+  - `*.html`
+  - `*.js`
+  - `*.css`
+  - `assets/**`
+  - `.github/workflows/frontend_deploy.yml`
+- Manual execution via `workflow_dispatch`
+
+**Deployment steps:**
+
+```yaml
+name: CD - Deploy Frontend to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "index.html"
+      - "*.html"
+      - "*.js"
+      - "*.css"
+      - "assets/**"
+      - ".github/workflows/frontend_deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Sync static frontend to S3
+        run: |
+          aws s3 sync . s3://sot4-model-registry-dev/ \
+            --exclude ".git/*" \
+            --exclude ".github/*" \
+            --exclude "src/*" \
+            --exclude "backend/*" \
+            --exclude "tests/*" \
+            --exclude "*.py" \
+            --exclude "requirements.txt" \
+            --exclude "README.md" \
+            --delete
+```
+
+**Key features:**
+
+1. **Selective Sync** - Excludes backend code, tests, and configuration files
+2. **Delete Flag** - Removes files from S3 that no longer exist in the repository
+3. **OIDC Authentication** - Secure authentication without static AWS credentials
+
+## Dependabot Configuration
+
+**Configuration: `.github/workflows/dependabot.yml`**
+
+Automatically checks for outdated dependencies and opens pull requests to keep the project up to date.
+
+```yaml
+version: 2
+updates:
+  # Python dependencies (requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    versioning-strategy: "increase"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+```
+
+### Configured Ecosystems
+
+1. **Python (pip)** - Updates dependencies in `requirements.txt`
+2. **GitHub Actions** - Updates action versions in workflow files
+
+### Update Policy
+
+- **Daily checks** - Scans for updates every day
+- **Maximum 5 open PRs** per ecosystem
+- **Version increase strategy** - Prioritizes version bumps for Python packages
+
+### Handling Dependabot PRs
+
+1. Dependabot opens a pull request with dependency updates
+2. CI workflow runs automatically on the PR
+3. Review the changes and test results
+4. Merge if tests pass and changes are acceptable
+
+## Code Quality Tools
+
+### Linting with flake8
+
+The CI workflow includes optional linting with `flake8`:
+
+```bash
+flake8 --max-line-length=120 || true
+```
+
+**Configuration:**
+- Maximum line length: 120 characters
+- Non-blocking (uses `|| true` to prevent failures)
+
+### Additional Tools
+
+While not enforced in CI, the project supports additional quality tools:
+
+- **pytest-cov** - Code coverage analysis
+- **GitHub Copilot Auto-Review** - Automated PR feedback
+- **Microsoft Accessibility Insights** - ADA compliance testing
+
+## Manual Deployment
+
+Both CD workflows support manual execution via `workflow_dispatch`.
+
+### Trigger Manual Deployment
+
+1. Navigate to **Actions** tab in GitHub
+2. Select the workflow (e.g., "CD - Deploy API to Lambda")
+3. Click **Run workflow**
+4. Select the branch (usually `main`)
+5. Click **Run workflow** button
+
+## AWS Infrastructure Requirements
+
+### IAM Role for OIDC
+
+Create an IAM role with trust policy for GitHub Actions OIDC:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:OWNER/REPO:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Required Permissions
+
+**Backend deployment:**
+- `lambda:UpdateFunctionCode`
+- `lambda:GetFunction`
+
+**Frontend deployment:**
+- `s3:PutObject`
+- `s3:DeleteObject`
+- `s3:ListBucket`
+
+## Monitoring Deployments
+
+### GitHub Actions Logs
+
+1. Navigate to **Actions** tab
+2. Select the workflow run
+3. View logs for each step
+
+### AWS Lambda
+
+Monitor backend deployments in AWS:
+
+```bash
+# View Lambda function configuration
+aws lambda get-function --function-name FUNCTION_NAME
+
+# View recent logs
+aws logs tail /aws/lambda/FUNCTION_NAME --follow
+```
+
+### S3 Bucket
+
+Verify frontend deployment:
+
+```bash
+# List bucket contents
+aws s3 ls s3://sot4-model-registry-dev/
+
+# Check website endpoint
+curl http://sot4-model-registry-dev.s3-website.us-east-2.amazonaws.com/
+```
+
+## Troubleshooting
+
+### CI Failures
+
+**Tests failing:**
+- Check test logs in GitHub Actions
+- Run tests locally: `PYTHONPATH=. pytest -v`
+- Verify all dependencies are in `requirements.txt`
+
+**Import errors:**
+- Ensure `PYTHONPATH=.` is set in CI workflow
+- Check `pytest.ini` configuration
+
+### Deployment Failures
+
+**AWS authentication errors:**
+- Verify `AWS_ROLE_ARN` secret is correct
+- Check IAM role trust policy allows GitHub Actions OIDC
+- Ensure role has required permissions
+
+**Lambda update failures:**
+- Check Lambda function exists and name is correct
+- Verify deployment package size is under Lambda limits (50MB zipped, 250MB unzipped)
+- Review CloudWatch logs for runtime errors
+
+**S3 sync failures:**
+- Verify bucket exists and name is correct
+- Check bucket permissions and policies
+- Ensure region matches (`us-east-2`)
+
+## Best Practices
+
+1. **Test locally before pushing** - Run `pytest` before creating PRs
+2. **Review Dependabot PRs** - Don't auto-merge dependency updates
+3. **Monitor deployments** - Check CloudWatch and application health after deployments
+4. **Use workflow_dispatch** - Manually trigger deployments when needed
+5. **Keep workflows simple** - Separate concerns (CI, backend CD, frontend CD)
+6. **Secure secrets** - Use OIDC instead of long-lived AWS credentials

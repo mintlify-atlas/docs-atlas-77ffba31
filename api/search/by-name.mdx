@@ -1,0 +1,161 @@
+---
+title: "Search by Name"
+description: "Find artifacts by exact name match"
+---
+
+## Overview
+
+The Search by Name endpoint retrieves all artifacts that exactly match a given name. This is useful for finding specific artifacts when you know their registered name.
+
+## Endpoint
+
+```
+GET /artifact/byName/{name}
+```
+
+## Path Parameters
+
+<ParamField path="name" type="string" required>
+  Exact name of the artifact to search for. The name is matched after trimming whitespace. Use URL encoding for names containing special characters or slashes
+</ParamField>
+
+## Response
+
+Returns an array of artifact metadata objects. Multiple artifacts may have the same name.
+
+<ResponseField name="artifacts" type="array">
+  <Expandable title="ArtifactMetadata">
+    <ResponseField name="name" type="string">
+      Name of the artifact (matches the search parameter)
+    </ResponseField>
+    
+    <ResponseField name="id" type="string">
+      Unique identifier for the artifact
+    </ResponseField>
+    
+    <ResponseField name="type" type="string">
+      Artifact type: `"model"`, `"dataset"`, or `"code"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Matching Behavior
+
+- **Exact match**: The name must match exactly after trimming leading/trailing whitespace
+- **Case-sensitive**: Names are matched as-is, with no case normalization
+- **No wildcards**: Unlike the list endpoint, this does not support wildcard matching
+- **Empty results**: Returns an empty array `[]` if no artifacts match (200 status, not 404)
+
+## Response Format
+
+The endpoint always returns status `200 OK`, even when no artifacts are found. An empty result set is represented as an empty array.
+
+## Examples
+
+### Search for Model by Name
+
+```bash
+curl https://api.example.com/artifact/byName/bert-base-uncased
+```
+
+### Search for Hugging Face Model
+
+For Hugging Face models, use the full model identifier:
+
+```bash
+curl https://api.example.com/artifact/byName/facebook/opt-125m
+```
+
+Note: The forward slash must be URL-encoded as `%2F` in some clients:
+
+```bash
+curl https://api.example.com/artifact/byName/facebook%2Fopt-125m
+```
+
+### Search for Dataset
+
+```bash
+curl https://api.example.com/artifact/byName/imagenet-1k
+```
+
+### Search with No Matches
+
+```bash
+curl https://api.example.com/artifact/byName/nonexistent-artifact
+```
+
+Returns:
+
+```json
+[]
+```
+
+### Response Example (Single Match)
+
+```json
+[
+  {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  }
+]
+```
+
+### Response Example (Multiple Matches)
+
+If multiple artifacts share the same name:
+
+```json
+[
+  {
+    "name": "training-dataset",
+    "id": "5",
+    "type": "dataset"
+  },
+  {
+    "name": "training-dataset",
+    "id": "12",
+    "type": "dataset"
+  }
+]
+```
+
+## Use Cases
+
+### Verify Artifact Exists
+
+Check if an artifact with a specific name has been registered:
+
+```bash
+result=$(curl -s https://api.example.com/artifact/byName/my-model)
+if [ "$result" = "[]" ]; then
+  echo "Artifact not found"
+else
+  echo "Artifact exists"
+fi
+```
+
+### Get Artifact ID from Name
+
+Retrieve the ID for a known artifact name:
+
+```bash
+curl https://api.example.com/artifact/byName/bert-base-uncased | jq '.[0].id'
+```
+
+### Find All Versions
+
+If you use versioned naming (e.g., `model-v1`, `model-v2`), you'll need to make separate requests for each version. For broader searches, use the regex endpoint instead.
+
+## Comparison with Other Search Endpoints
+
+| Feature | byName | byRegEx | POST /artifacts |
+|---------|--------|---------|----------------|
+| Match type | Exact | Pattern | Name + Type filter |
+| Wildcards | No | Yes (regex) | Yes (`"*"`) |
+| Search model cards | No | Yes | No |
+| Pagination | No | No | Yes |
+| Type filtering | No | No | Yes |
+
+For fuzzy matching or searching within model cards, use the [regex search endpoint](/api/search/search-regex).

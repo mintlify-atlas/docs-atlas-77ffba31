@@ -1,0 +1,325 @@
+---
+title: 'Authentication'
+description: 'Authentication mechanisms for the Trustworthy Model Registry API'
+---
+
+## Overview
+
+The Trustworthy Model Registry API is designed for deployment flexibility with configurable authentication. The current implementation focuses on AWS-based deployment with environment-based configuration.
+
+<Note>
+The API currently operates in **open mode** for development and testing. Production deployments should implement token-based authentication as described below.
+</Note>
+
+## Authentication Methods
+
+### Environment-Based Authentication
+
+For production deployments, the API can be configured to require authentication using the `AUTH_TOKEN` environment variable.
+
+#### Setup
+
+1. Set the `AUTH_TOKEN` environment variable in your deployment:
+
+```bash
+export AUTH_TOKEN="your-secure-token-here"
+```
+
+2. For AWS Lambda deployments, configure via AWS Systems Manager Parameter Store or Secrets Manager
+
+3. For local development, add to your `.env` file:
+
+```bash .env
+AUTH_TOKEN=dev-token-12345
+```
+
+### CORS-Based Origin Validation
+
+The API uses CORS middleware to restrict access to approved origins:
+
+```python
+ALLOWED_ORIGINS = [
+    "http://sot4-model-registry-dev.s3-website.us-east-2.amazonaws.com"
+]
+```
+
+Only requests from whitelisted origins are permitted, providing a layer of access control at the application level.
+
+## Making Authenticated Requests
+
+### Using Authorization Header
+
+When token authentication is enabled, include the token in the `Authorization` header:
+
+```bash
+curl -X GET \
+  https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api/health \
+  -H 'Authorization: Bearer your-auth-token'
+```
+
+### Python Example
+
+```python
+import requests
+import os
+
+BASE_URL = "https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api"
+AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+
+headers = {
+    "Authorization": f"Bearer {AUTH_TOKEN}",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(
+    f"{BASE_URL}/health",
+    headers=headers
+)
+
+print(response.json())
+```
+
+### JavaScript/TypeScript Example
+
+```typescript
+const BASE_URL = "https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api";
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
+
+const response = await fetch(`${BASE_URL}/health`, {
+  method: "GET",
+  headers: {
+    "Authorization": `Bearer ${AUTH_TOKEN}`,
+    "Content-Type": "application/json"
+  }
+});
+
+const data = await response.json();
+console.log(data);
+```
+
+## CORS Configuration
+
+The API is configured with strict CORS policies to ensure secure cross-origin requests.
+
+### Allowed Headers
+
+```json
+[
+  "content-type",
+  "authorization"
+]
+```
+
+### Allowed Methods
+
+```json
+[
+  "GET",
+  "POST",
+  "PUT",
+  "DELETE",
+  "OPTIONS"
+]
+```
+
+### Preflight Requests
+
+The API handles OPTIONS preflight requests globally:
+
+```http
+OPTIONS /api/artifact/model
+HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: http://sot4-model-registry-dev.s3-website.us-east-2.amazonaws.com
+Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS
+Access-Control-Allow-Headers: content-type,authorization
+```
+
+## Token Management
+
+### Token Generation
+
+For production deployments, generate secure tokens using:
+
+```python
+import secrets
+
+# Generate a secure random token
+token = secrets.token_urlsafe(32)
+print(f"AUTH_TOKEN={token}")
+```
+
+### Token Storage
+
+<Warning>
+Never commit tokens to version control. Always use environment variables or secret management services.
+</Warning>
+
+**Recommended approaches:**
+
+1. **AWS Secrets Manager** (Production)
+   - Store tokens securely in AWS Secrets Manager
+   - Configure Lambda to access secrets at runtime
+   - Automatic rotation support
+
+2. **Environment Variables** (Development)
+   - Use `.env` files (add to `.gitignore`)
+   - Load via `python-dotenv`
+   - Easy local testing
+
+3. **AWS Systems Manager Parameter Store** (Production)
+   - Hierarchical parameter storage
+   - Fine-grained access control via IAM
+   - Version tracking
+
+### Token Rotation
+
+<Info>
+The current implementation does not enforce token expiration. For production use, implement token rotation policies:
+- Rotate tokens every 90 days minimum
+- Use short-lived tokens where possible
+- Implement token versioning for zero-downtime rotation
+</Info>
+
+## AWS Lambda Authentication
+
+When deployed to AWS Lambda with API Gateway, additional authentication layers are available:
+
+### API Gateway API Keys
+
+```bash
+curl -X GET \
+  https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api/health \
+  -H 'x-api-key: your-api-gateway-key'
+```
+
+### IAM Authentication
+
+Use AWS Signature Version 4 signing for IAM-based authentication:
+
+```python
+from aws_requests_auth.aws_auth import AWSRequestsAuth
+import requests
+
+auth = AWSRequestsAuth(
+    aws_access_key='YOUR_ACCESS_KEY',
+    aws_secret_access_key='YOUR_SECRET_KEY',
+    aws_host='c1r52eygxi.execute-api.us-east-2.amazonaws.com',
+    aws_region='us-east-2',
+    aws_service='execute-api'
+)
+
+response = requests.get(
+    'https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api/health',
+    auth=auth
+)
+```
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use HTTPS Only">
+    Always use HTTPS endpoints in production. The deployed API uses AWS API Gateway with TLS 1.2+.
+  </Accordion>
+
+  <Accordion title="Rotate Credentials Regularly">
+    Implement a credential rotation policy:
+    - API tokens: Every 90 days
+    - AWS access keys: Every 180 days
+    - Service accounts: Annual review
+  </Accordion>
+
+  <Accordion title="Implement Request Rate Limiting">
+    While the API doesn't enforce rate limits, implement client-side throttling:
+    - Maximum 100 requests per minute per client
+    - Exponential backoff for retries
+    - Circuit breaker pattern for resilience
+  </Accordion>
+
+  <Accordion title="Monitor Authentication Failures">
+    Track and alert on authentication failures:
+    - Failed token validation attempts
+    - CORS policy violations
+    - Unusual access patterns
+  </Accordion>
+</AccordionGroup>
+
+## Error Responses
+
+### Unauthorized Access
+
+When authentication is required but not provided:
+
+```json
+{
+  "detail": "Authentication required",
+  "status_code": 401
+}
+```
+
+### Invalid Token
+
+When an invalid token is provided:
+
+```json
+{
+  "detail": "Invalid authentication credentials",
+  "status_code": 403
+}
+```
+
+### CORS Violation
+
+When requests originate from non-whitelisted origins:
+
+```json
+{
+  "detail": "Origin not allowed",
+  "status_code": 403
+}
+```
+
+## Testing Authentication
+
+### Health Check Endpoint
+
+Use the health endpoint to verify authentication setup:
+
+```bash
+curl -X GET \
+  https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/api/health \
+  -H 'Authorization: Bearer your-token' \
+  -v
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "uptime_s": 3600,
+  "models": 42
+}
+```
+
+### Environment Verification
+
+Check current environment configuration:
+
+```bash
+curl -X GET \
+  https://c1r52eygxi.execute-api.us-east-2.amazonaws.com/env
+```
+
+<Warning>
+The `/env` endpoint exposes environment variables and should be disabled in production deployments.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Overview" icon="book" href="/api/overview">
+    Learn about API structure and capabilities
+  </Card>
+  <Card title="Artifacts API" icon="code" href="/api/artifacts/create">
+    Explore detailed endpoint documentation
+  </Card>
+</CardGroup>

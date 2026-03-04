@@ -1,0 +1,162 @@
+---
+title: "List Artifacts"
+description: "Enumerate artifacts with filtering and pagination"
+---
+
+## Overview
+
+The List Artifacts endpoint allows you to enumerate all artifacts in the registry with optional filtering by name and type, plus pagination support for large result sets.
+
+## Endpoint
+
+```
+POST /artifacts
+```
+
+## Request Body
+
+The request body accepts an array of query objects. Currently, only the first query is processed.
+
+<ParamField body="queries" type="array" required>
+  Array of artifact query objects
+  
+  <Expandable title="ArtifactQuery">
+    <ParamField body="name" type="string" required>
+      Artifact name to filter by. Use `"*"` to list all artifacts
+    </ParamField>
+    
+    <ParamField body="types" type="array">
+      Array of artifact types to filter by. Valid values: `"model"`, `"dataset"`, `"code"`. Omit to include all types
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="offset" type="string">
+  Pagination offset. Start retrieving results from this index (0-based)
+</ParamField>
+
+## Response
+
+Returns an array of artifact metadata objects.
+
+<ResponseField name="artifacts" type="array">
+  <Expandable title="ArtifactMetadata">
+    <ResponseField name="name" type="string">
+      Name of the artifact
+    </ResponseField>
+    
+    <ResponseField name="id" type="string">
+      Unique identifier for the artifact
+    </ResponseField>
+    
+    <ResponseField name="type" type="string">
+      Artifact type: `"model"`, `"dataset"`, or `"code"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Response Headers
+
+<ResponseField name="offset" type="string">
+  Next pagination offset. Present only if more results are available. Use this value in the next request's `offset` query parameter
+</ResponseField>
+
+## Pagination
+
+The endpoint returns up to 1000 artifacts per request. When more results are available, the response includes an `offset` header indicating where to start the next request.
+
+## Filter by Artifact Type
+
+You can filter artifacts by type using the `types` array:
+
+- **MODEL**: Machine learning models from Hugging Face or other sources
+- **DATASET**: Training or evaluation datasets
+- **CODE**: Code repositories or implementations
+
+## Examples
+
+### List All Artifacts
+
+```bash
+curl -X POST https://api.example.com/artifacts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [{
+      "name": "*"
+    }]
+  }'
+```
+
+### List Models Only
+
+```bash
+curl -X POST https://api.example.com/artifacts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [{
+      "name": "*",
+      "types": ["model"]
+    }]
+  }'
+```
+
+### List Specific Artifact by Name
+
+```bash
+curl -X POST https://api.example.com/artifacts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [{
+      "name": "bert-base-uncased"
+    }]
+  }'
+```
+
+### Paginated Request
+
+```bash
+# First page
+curl -X POST https://api.example.com/artifacts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [{
+      "name": "*",
+      "types": ["model", "dataset"]
+    }]
+  }' \
+  -i
+
+# Next page (using offset from response header)
+curl -X POST https://api.example.com/artifacts?offset=1000 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [{
+      "name": "*",
+      "types": ["model", "dataset"]
+    }]
+  }'
+```
+
+### Response Example
+
+```json
+[
+  {
+    "name": "bert-base-uncased",
+    "id": "1",
+    "type": "model"
+  },
+  {
+    "name": "imagenet-1k",
+    "id": "2",
+    "type": "dataset"
+  },
+  {
+    "name": "training-scripts",
+    "id": "3",
+    "type": "code"
+  }
+]
+```

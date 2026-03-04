@@ -1,0 +1,203 @@
+---
+title: Compute Metrics
+description: Retrieve comprehensive metric scores and latencies for a model artifact
+---
+
+## Endpoint
+
+```
+GET /artifact/model/{id}/rate
+```
+
+Computes and returns a comprehensive rating for a model artifact, including all Phase 2 trustworthiness metrics, performance indicators, and latency measurements.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the model artifact to rate
+</ParamField>
+
+## Response
+
+Returns a `ModelRating` object containing all computed metrics.
+
+<ResponseField name="name" type="string">
+  The name of the rated model
+</ResponseField>
+
+<ResponseField name="category" type="string">
+  The artifact category (always "model" for this endpoint)
+</ResponseField>
+
+<ResponseField name="net_score" type="number">
+  Aggregate trustworthiness score (0.0 to 1.0) computed as the average of all individual metrics
+</ResponseField>
+
+<ResponseField name="net_score_latency" type="number">
+  Total time in milliseconds to compute all metrics
+</ResponseField>
+
+### Individual Metrics
+
+Each metric includes both a score (0.0 to 1.0) and a latency measurement (milliseconds):
+
+<ResponseField name="ramp_up_time" type="number">
+  Measures documentation quality and ease of onboarding for new users
+</ResponseField>
+
+<ResponseField name="ramp_up_time_latency" type="number">
+  Time in milliseconds to compute ramp-up time score
+</ResponseField>
+
+<ResponseField name="bus_factor" type="number">
+  Evaluates project resilience based on contributor distribution
+</ResponseField>
+
+<ResponseField name="bus_factor_latency" type="number">
+  Time in milliseconds to compute bus factor score
+</ResponseField>
+
+<ResponseField name="performance_claims" type="number">
+  Validates performance benchmarks mentioned in model documentation
+</ResponseField>
+
+<ResponseField name="performance_claims_latency" type="number">
+  Time in milliseconds to compute performance claims score
+</ResponseField>
+
+<ResponseField name="license" type="number">
+  License compatibility and permissiveness score
+</ResponseField>
+
+<ResponseField name="license_latency" type="number">
+  Time in milliseconds to compute license score
+</ResponseField>
+
+<ResponseField name="dataset_and_code_score" type="number">
+  Combined quality assessment of training datasets and associated code
+</ResponseField>
+
+<ResponseField name="dataset_and_code_score_latency" type="number">
+  Time in milliseconds to compute dataset and code score
+</ResponseField>
+
+<ResponseField name="dataset_quality" type="number">
+  Evaluates the quality and documentation of training datasets
+</ResponseField>
+
+<ResponseField name="dataset_quality_latency" type="number">
+  Time in milliseconds to compute dataset quality score
+</ResponseField>
+
+<ResponseField name="code_quality" type="number">
+  Assesses code maintainability, testing, and documentation
+</ResponseField>
+
+<ResponseField name="code_quality_latency" type="number">
+  Time in milliseconds to compute code quality score
+</ResponseField>
+
+<ResponseField name="reproducibility" type="number">
+  Measures availability of training scripts, configs, and reproducibility artifacts
+</ResponseField>
+
+<ResponseField name="reproducibility_latency" type="number">
+  Time in milliseconds to compute reproducibility score
+</ResponseField>
+
+<ResponseField name="reviewedness" type="number">
+  Evaluates community engagement, model card completeness, and peer review activity
+</ResponseField>
+
+<ResponseField name="reviewedness_latency" type="number">
+  Time in milliseconds to compute reviewedness score
+</ResponseField>
+
+<ResponseField name="tree_score" type="number">
+  Lineage-based score combining the model's own metrics with ancestor model quality
+</ResponseField>
+
+<ResponseField name="tree_score_latency" type="number">
+  Time in milliseconds to compute tree score
+</ResponseField>
+
+<ResponseField name="size_score" type="object">
+  Hardware compatibility scores for different deployment targets
+  
+  **Properties:**
+  - `raspberry_pi` (number): Compatibility score for Raspberry Pi (0.0 to 1.0)
+  - `jetson_nano` (number): Compatibility score for Jetson Nano (0.0 to 1.0)
+  - `desktop_pc` (number): Compatibility score for desktop PC (0.0 to 1.0)
+  - `aws_server` (number): Compatibility score for AWS server (0.0 to 1.0)
+</ResponseField>
+
+<ResponseField name="size_score_latency" type="number">
+  Time in milliseconds to compute size compatibility scores
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET https://api.example.com/artifact/model/42/rate
+```
+
+## Example Response
+
+```json
+{
+  "name": "facebook/wav2vec2-base",
+  "category": "model",
+  "net_score": 0.7234,
+  "net_score_latency": 8250,
+  "ramp_up_time": 0.85,
+  "ramp_up_time_latency": 320,
+  "bus_factor": 0.92,
+  "bus_factor_latency": 450,
+  "performance_claims": 0.78,
+  "performance_claims_latency": 280,
+  "license": 1.0,
+  "license_latency": 120,
+  "dataset_and_code_score": 0.73,
+  "dataset_and_code_score_latency": 890,
+  "dataset_quality": 0.81,
+  "dataset_quality_latency": 540,
+  "code_quality": 0.65,
+  "code_quality_latency": 720,
+  "reproducibility": 0.58,
+  "reproducibility_latency": 380,
+  "reviewedness": 0.91,
+  "reviewedness_latency": 670,
+  "tree_score": 0.68,
+  "tree_score_latency": 2100,
+  "size_score": {
+    "raspberry_pi": 0.32,
+    "jetson_nano": 0.45,
+    "desktop_pc": 0.88,
+    "aws_server": 1.0
+  },
+  "size_score_latency": 1780
+}
+```
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  Artifact not found - the specified model ID does not exist in the registry
+</ResponseField>
+
+<ResponseField name="400" type="error">
+  Bad request - rating is only supported for model artifacts (not datasets or code)
+</ResponseField>
+
+<ResponseField name="500" type="error">
+  Internal error during metric computation
+</ResponseField>
+
+## Behavior Notes
+
+- Metrics are computed at ingestion time and cached in artifact metadata
+- If cached metrics are available and valid, they are returned immediately
+- If metrics are missing or invalid, they are recomputed on-demand
+- All metric scores are normalized to the range [0.0, 1.0]
+- Latencies are measured in milliseconds and represent actual computation time
+- The `net_score` is the arithmetic mean of all individual metric scores

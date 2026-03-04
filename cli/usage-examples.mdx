@@ -1,0 +1,454 @@
+---
+title: 'Usage Examples'
+description: 'Real-world examples of using the CLI for model evaluation'
+icon: 'code'
+---
+
+## Quick Start Example
+
+Here's a complete workflow from installation to model evaluation:
+
+```bash
+# Clone the repository
+git clone https://github.com/GingerlyData247/SOTeam4-P2.git
+cd SOTeam4-P2
+
+# Make executable and install dependencies
+chmod +x run.py
+./run.py install
+
+# Verify installation
+./run.py test
+
+# Create a URL file
+echo "https://huggingface.co/facebook/wav2vec2-base" > urls.txt
+
+# Run evaluation
+./run.py urls.txt
+```
+
+---
+
+## Evaluating a Single Model
+
+### Create URL File
+
+The CLI requires a text file containing URLs. For a single model:
+
+```bash
+cat > model.txt << 'EOF'
+https://huggingface.co/openai/whisper-tiny
+EOF
+```
+
+### Run Evaluation
+
+```bash
+./run.py model.txt
+```
+
+### Example Output
+
+```json
+{"name":"openai/whisper-tiny","category":"MODEL","reproducibility":0.9,"reproducibility_latency":1243,"license":0.95,"license_latency":876,"size_score":{"raspberry_pi":0.6,"jetson_nano":0.7,"desktop_pc":0.95,"aws_server":1.0},"size_score_latency":543,"lineage":0.85,"lineage_latency":1567,"reviewedness":0.92,"reviewedness_latency":2341,"bus_factor":0.0,"bus_factor_latency":0,"code_quality":0.0,"code_quality_latency":0,"net_score":0.7456,"net_score_latency":6570}
+```
+
+<Info>
+Metrics like `bus_factor` and `code_quality` may return 0 if no GitHub repository is linked to the model.
+</Info>
+
+---
+
+## Batch Evaluation of Multiple Models
+
+### Create Multi-Model URL File
+
+You can list multiple URLs, one per line:
+
+```bash
+cat > batch_models.txt << 'EOF'
+https://huggingface.co/facebook/wav2vec2-base
+https://huggingface.co/openai/whisper-tiny
+https://huggingface.co/bert-base-uncased
+https://huggingface.co/distilbert-base-uncased
+https://huggingface.co/microsoft/deberta-v3-base
+EOF
+```
+
+### Run Batch Evaluation
+
+```bash
+./run.py batch_models.txt > results.ndjson
+```
+
+### Process Results
+
+The output is in **NDJSON** format (newline-delimited JSON), where each line is a complete JSON object:
+
+```bash
+# Count total models evaluated
+wc -l results.ndjson
+
+# Extract just the model names and net scores
+jq -r '[.name, .net_score] | @tsv' results.ndjson
+
+# Find models with net_score > 0.8
+jq 'select(.net_score > 0.8)' results.ndjson
+
+# Calculate average net_score
+jq -s 'map(.net_score) | add / length' results.ndjson
+```
+
+---
+
+## Comma-Separated URLs
+
+The CLI also supports comma-separated URLs on the same line:
+
+```bash
+cat > urls_comma.txt << 'EOF'
+https://huggingface.co/facebook/wav2vec2-base, https://huggingface.co/openai/whisper-tiny
+https://huggingface.co/bert-base-uncased, https://huggingface.co/distilbert-base-uncased
+EOF
+```
+
+```bash
+./run.py urls_comma.txt
+```
+
+---
+
+## Working with Different Model Sources
+
+### Hugging Face Models
+
+```bash
+cat > hf_models.txt << 'EOF'
+https://huggingface.co/facebook/bart-large
+https://huggingface.co/google/flan-t5-base
+https://huggingface.co/EleutherAI/gpt-neo-1.3B
+EOF
+```
+
+```bash
+./run.py hf_models.txt
+```
+
+### GitHub Repositories
+
+You can also evaluate code repositories (they'll be classified as `CODE`):
+
+```bash
+cat > github_repos.txt << 'EOF'
+https://github.com/pytorch/fairseq
+https://github.com/huggingface/transformers
+EOF
+```
+
+```bash
+./run.py github_repos.txt
+```
+
+<Warning>
+GitHub repositories are classified as `CODE`, not `MODEL`, and will have limited metric evaluation.
+</Warning>
+
+### Hugging Face Datasets
+
+```bash
+cat > datasets.txt << 'EOF'
+https://huggingface.co/datasets/squad
+https://huggingface.co/datasets/common_voice
+EOF
+```
+
+```bash
+./run.py datasets.txt
+```
+
+<Note>
+Dataset evaluation is currently limited in Phase 1. The primary focus is on MODEL resources.
+</Note>
+
+---
+
+## Using Environment Variables
+
+### Enable Debug Logging
+
+```bash
+LOG_LEVEL=2 ./run.py urls.txt
+```
+
+This will output detailed debug information to stderr:
+
+```
+2026-03-04 14:23:45 INFO → Running metric: reproducibility for facebook/wav2vec2-base
+2026-03-04 14:23:46 INFO ✓ Finished metric: reproducibility (1243 ms)
+2026-03-04 14:23:46 INFO → Running metric: license for facebook/wav2vec2-base
+...
+```
+
+### Log to File
+
+```bash
+LOG_FILE=/var/log/model-eval.log LOG_LEVEL=1 ./run.py urls.txt
+```
+
+Now check the log file:
+
+```bash
+tail -f /var/log/model-eval.log
+```
+
+### Disable Progress Bars
+
+```bash
+HF_HUB_DISABLE_PROGRESS_BARS=1 TQDM_DISABLE=1 ./run.py urls.txt
+```
+
+---
+
+## Advanced Workflows
+
+### Filter High-Quality Models
+
+Evaluate a batch of models and filter for high net_score:
+
+```bash
+./run.py batch_models.txt | jq 'select(.net_score > 0.8)' > high_quality.ndjson
+```
+
+### Generate CSV Report
+
+Convert NDJSON output to CSV:
+
+```bash
+./run.py batch_models.txt | \
+  jq -r '[.name, .net_score, .reproducibility, .license, .reviewedness] | @csv' > report.csv
+```
+
+### Sort by Net Score
+
+Evaluate and sort models by trustworthiness:
+
+```bash
+./run.py batch_models.txt | \
+  jq -s 'sort_by(-.net_score)[] | {name, net_score}'
+```
+
+### Extract Specific Metrics
+
+Get only reproducibility and license scores:
+
+```bash
+./run.py urls.txt | jq '{name, reproducibility, license}'
+```
+
+---
+
+## Understanding Output Fields
+
+Each output JSON object contains:
+
+### Core Fields
+
+<ResponseField name="name" type="string">
+  Model identifier (e.g., `facebook/wav2vec2-base`)
+</ResponseField>
+
+<ResponseField name="category" type="string">
+  Resource type: `MODEL`, `DATASET`, or `CODE`
+</ResponseField>
+
+<ResponseField name="net_score" type="float">
+  Overall trustworthiness score (0.0-1.0), computed as the average of all metric scores
+</ResponseField>
+
+<ResponseField name="net_score_latency" type="integer">
+  Total time in milliseconds to compute all metrics
+</ResponseField>
+
+### Metric Scores
+
+Each metric has two fields:
+
+<ResponseField name="{metric}" type="float">
+  Score from 0.0 (worst) to 1.0 (best)
+</ResponseField>
+
+<ResponseField name="{metric}_latency" type="integer">
+  Time in milliseconds to compute this metric
+</ResponseField>
+
+### Available Metrics
+
+- **reproducibility** - Can the model be reproduced?
+- **license** - Is licensing clear and permissive?
+- **size_score** - Hardware compatibility (object with `raspberry_pi`, `jetson_nano`, `desktop_pc`, `aws_server`)
+- **lineage** - Are dependencies and data sources documented?
+- **reviewedness** - Quality of documentation and examples
+- **bus_factor** - Contributor diversity (requires GitHub repo)
+- **code_quality** - CI/CD and testing infrastructure (requires GitHub repo)
+
+---
+
+## Performance Tuning
+
+### Parallel Processing
+
+The CLI automatically processes models in parallel using up to 8 workers. For very large batches, you can monitor progress:
+
+```bash
+LOG_LEVEL=1 ./run.py large_batch.txt 2>&1 | grep "Running metric"
+```
+
+### Timeouts
+
+Each metric has a 90-second timeout. If a metric hangs, it returns `0.0` and processing continues:
+
+```
+2026-03-04 14:25:30 WARNING metric:bus_factor timed out after 90s.
+```
+
+### Memory Usage
+
+For very large batches, process in chunks:
+
+```bash
+# Split into chunks of 10 URLs each
+split -l 10 large_urls.txt chunk_
+
+# Process each chunk
+for chunk in chunk_*; do
+  ./run.py $chunk >> all_results.ndjson
+done
+```
+
+---
+
+## Troubleshooting Examples
+
+### No Output Produced
+
+**Problem:** Running `./run.py urls.txt` produces no output.
+
+**Solution:** Check that the URL file exists and contains valid URLs:
+
+```bash
+cat urls.txt
+```
+
+Verify the file path is correct:
+
+```bash
+ls -la urls.txt
+```
+
+### Metrics Return All Zeros
+
+**Problem:** All metrics show `0.0` scores.
+
+**Solution:** Enable debug logging to see what's failing:
+
+```bash
+LOG_LEVEL=2 ./run.py urls.txt 2>&1 | less
+```
+
+Check if the model URL is accessible:
+
+```bash
+curl -I https://huggingface.co/your/model
+```
+
+### Slow Evaluation
+
+**Problem:** Evaluation takes a very long time.
+
+**Solution:** Some metrics (especially those requiring GitHub repo cloning) can be slow. Monitor which metrics are hanging:
+
+```bash
+LOG_LEVEL=1 ./run.py urls.txt 2>&1 | grep -E "Running metric|Finished metric|timed out"
+```
+
+---
+
+## Integration Examples
+
+### CI/CD Pipeline
+
+Use the CLI in a GitHub Actions workflow:
+
+```yaml
+name: Evaluate Models
+
+on:
+  push:
+    paths:
+      - 'models.txt'
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: ./run.py install
+      
+      - name: Evaluate models
+        run: ./run.py models.txt > results.ndjson
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: evaluation-results
+          path: results.ndjson
+```
+
+### Automated Reporting
+
+Generate a daily report of model quality:
+
+```bash
+#!/bin/bash
+
+DATE=$(date +%Y-%m-%d)
+./run.py production_models.txt > "results_${DATE}.ndjson"
+
+# Generate summary statistics
+jq -s '{
+  total: length,
+  avg_score: (map(.net_score) | add / length),
+  high_quality: map(select(.net_score > 0.8)) | length
+}' "results_${DATE}.ndjson" > "summary_${DATE}.json"
+
+# Send to monitoring system
+curl -X POST https://monitoring.example.com/metrics \
+  -H "Content-Type: application/json" \
+  -d @"summary_${DATE}.json"
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="server" href="/api/overview">
+    Use the REST API for programmatic access
+  </Card>
+  <Card title="Trust Metrics" icon="shield-check" href="/concepts/trust-metrics">
+    Learn how each metric is calculated
+  </Card>
+  <Card title="Development Guide" icon="code" href="/development/contributing">
+    Contribute new metrics or features
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/aws-deployment">
+    Deploy to AWS for production use
+  </Card>
+</CardGroup>

@@ -1,0 +1,178 @@
+---
+title: License Check
+description: Verify license compatibility between a model and a GitHub repository
+---
+
+## Endpoint
+
+```
+POST /artifact/model/{id}/license-check
+```
+
+Checks whether a GitHub repository's license is compatible with a model's license for fine-tuning or inference purposes. This helps ensure legal compliance when using model weights with custom training or inference code.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the model artifact to check
+</ParamField>
+
+## Request Body
+
+<ParamField body="github_url" type="string" required>
+  The HTTPS URL of the GitHub repository to check compatibility with
+  
+  **Format:** `https://github.com/{owner}/{repo}`
+</ParamField>
+
+## Response
+
+Returns a boolean value indicating compatibility.
+
+<ResponseField name="compatible" type="boolean">
+  `true` if the GitHub repository's license is compatible with the model's license, `false` otherwise
+</ResponseField>
+
+## License Compatibility Matrix
+
+The endpoint uses a predefined compatibility matrix based on standard open-source license compatibility rules:
+
+### Apache 2.0 Model License
+Compatible with:
+- MIT
+- BSD 3-Clause
+- BSD 2-Clause
+- Apache 2.0
+
+### MIT Model License
+Compatible with:
+- MIT
+- BSD 3-Clause
+- BSD 2-Clause
+
+### BSD 3-Clause Model License
+Compatible with:
+- BSD 3-Clause
+- MIT
+
+### BSD 2-Clause Model License
+Compatible with:
+- BSD 2-Clause
+- MIT
+
+### GPL 3.0 Model License
+Compatible with:
+- *None* (GPL requires derivative works to also be GPL-licensed)
+
+### CC-BY 4.0 Model License
+Compatible with:
+- *None* (Creative Commons licenses have specific attribution requirements)
+
+## Fine-Tuning vs Inference
+
+While this endpoint provides a single compatibility check, license implications differ by use case:
+
+### Fine-Tuning (Training)
+When fine-tuning a model:
+- Model weights are modified, creating a derivative work
+- More restrictive license terms apply
+- Training code license must be compatible with model license
+- Output model inherits license constraints from base model
+
+### Inference Only
+When using a model for inference:
+- Model weights are not modified
+- More permissive interpretation may apply
+- Inference code and model can often have different licenses
+- Check specific license terms for production use
+
+**Important**: This endpoint provides a simplified compatibility check. Always review full license texts and consult legal counsel for production deployments.
+
+## Example Request
+
+```bash
+curl -X POST https://api.example.com/artifact/model/42/license-check \
+  -H "Content-Type: application/json" \
+  -d '{
+    "github_url": "https://github.com/huggingface/transformers"
+  }'
+```
+
+## Example Responses
+
+### Compatible Licenses
+
+```json
+true
+```
+
+In this example:
+- Model 42 has an Apache 2.0 license
+- The `huggingface/transformers` repository uses an Apache 2.0 license
+- These licenses are compatible
+
+### Incompatible Licenses
+
+```json
+false
+```
+
+In this example:
+- Model has a GPL 3.0 license
+- GitHub repository uses an MIT license
+- GPL requires derivative works to also be GPL-licensed
+- These licenses are incompatible for creating derivative works
+
+## License Detection
+
+The endpoint automatically detects licenses from:
+
+### Model License
+1. Artifact metadata (cached from ingestion)
+2. Hugging Face API (`/api/models/{id}` endpoint)
+3. Model card metadata fields
+
+### GitHub License
+1. GitHub API (`/repos/{owner}/{repo}/license` endpoint)
+2. Returns SPDX license identifier (e.g., "apache-2.0", "mit", "gpl-3.0")
+3. Automatically parses LICENSE file in repository root
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  **Artifact not found**: The specified model ID does not exist in the registry
+  
+  OR
+  
+  **Invalid GitHub URL**: URL format is incorrect or does not point to a valid repository
+</ResponseField>
+
+<ResponseField name="502" type="error">
+  **Unable to fetch license**: Could not retrieve license information from Hugging Face or GitHub APIs
+  
+  Possible causes:
+  - Model or repository does not have a LICENSE file
+  - API rate limits exceeded
+  - Network connectivity issues
+  - Private repository (not accessible without authentication)
+</ResponseField>
+
+## Behavior Notes
+
+- **Case-insensitive matching**: License identifiers are normalized to lowercase
+- **SPDX format**: Uses standardized SPDX license identifiers (e.g., "apache-2.0" not "Apache License 2.0")
+- **Strict matching**: Only explicitly compatible licenses return `true`
+- **Unknown licenses**: If either license cannot be determined, the endpoint returns an error
+- **External APIs**: Requires network access to Hugging Face and GitHub APIs
+
+## Use Cases
+
+- **Pre-deployment validation**: Check license compliance before deploying models in production
+- **Training pipeline safety**: Verify that training code and model weights have compatible licenses
+- **Automated compliance**: Integrate into CI/CD pipelines to prevent license violations
+- **Repository selection**: Filter GitHub repositories by license compatibility with specific models
+
+## Related Endpoints
+
+- `GET /artifact/model/{id}/rate` - Returns the numeric `license` metric score (0.0 to 1.0)
+- `GET /artifact/model/{id}/lineage` - Shows parent models that may have different licenses
