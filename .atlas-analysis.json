@@ -1,0 +1,129 @@
+{
+  "projectType": "api-service",
+  "projectName": "Trustworthy Model Registry",
+  "projectDescription": "A cloud-native REST API for evaluating, storing, and serving ML artifacts with machine-verifiable trust signals.",
+  "theme": "aspen",
+  "primaryColor": "#1e40af",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e3a8a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/trust-metrics",
+              "concepts/artifact-lifecycle",
+              "concepts/lineage"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/local-setup",
+              "deployment/aws-deployment",
+              "deployment/configuration"
+            ]
+          },
+          {
+            "group": "CLI Tool",
+            "pages": [
+              "cli/installation",
+              "cli/commands",
+              "cli/usage-examples"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/testing",
+              "development/ci-cd",
+              "development/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Artifacts",
+            "pages": [
+              "api/artifacts/create",
+              "api/artifacts/ingest",
+              "api/artifacts/retrieve",
+              "api/artifacts/update",
+              "api/artifacts/delete"
+            ]
+          },
+          {
+            "group": "Rating & Analysis",
+            "pages": [
+              "api/rating/compute-metrics",
+              "api/rating/lineage",
+              "api/rating/cost-estimation",
+              "api/rating/license-check"
+            ]
+          },
+          {
+            "group": "Search & Enumeration",
+            "pages": [
+              "api/search/list-artifacts",
+              "api/search/search-regex",
+              "api/search/by-name"
+            ]
+          },
+          {
+            "group": "System",
+            "pages": [
+              "api/system/health",
+              "api/system/reset"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "OpenAPI-compliant REST API for ML artifact management",
+    "Automated trust scoring with 13+ metrics (reproducibility, license compatibility, reviewedness, etc.)",
+    "HuggingFace model ingestion and evaluation",
+    "Lineage graph construction and dependency analysis",
+    "AWS Lambda deployment with S3 artifact storage",
+    "CLI tool for batch model evaluation",
+    "License compatibility checking for fine-tuning and inference",
+    "Secure artifact download via presigned S3 URLs"
+  ],
+  "publicApiSurface": [
+    "POST /artifact - Upload artifact",
+    "POST /artifact/ingest - Ingest HuggingFace model",
+    "GET /artifact/{type}/{id} - Retrieve artifact by ID",
+    "GET /artifact/byName/{name} - Retrieve artifact by name",
+    "DELETE /artifact/{type}/{id} - Delete artifact",
+    "GET /artifact/{type}/{id}/rate - Compute trust metrics",
+    "GET /artifact/{type}/{id}/lineage - Get lineage graph",
+    "GET /artifact/{type}/{id}/cost - Size and cost estimation",
+    "POST /artifact/license-check - License compatibility analysis",
+    "GET /artifacts/{type} - List artifacts with pagination",
+    "GET /artifacts/search - Regex-based artifact search",
+    "GET /health - System health and activity",
+    "DELETE /reset - Reset registry to default state"
+  ]
+}
